@@ -3,6 +3,10 @@ name: Build Arch Linux ARM package
 on:
   workflow_call:
     inputs:
+      runner:
+        description: "GitHub runner label"
+        required: true
+        type: string
       package_repo:
         description: "Git URL of the package repo containing the PKGBUILD"
         required: true
@@ -26,7 +30,7 @@ on:
 
 jobs:
   build:
-    runs-on: ubuntu-24.04-arm
+    runs-on: ${{ inputs.runner }}
     steps:
       - name: Checkout
         uses: actions/checkout@v5
