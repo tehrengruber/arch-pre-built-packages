@@ -22,6 +22,11 @@ KEY_ID=$(gpg --list-keys --with-colons "$KEY_EMAIL" | awk -F: '/^pub/{print $5}'
 
 echo "Key ID: $KEY_ID" >&2
 echo "" >&2
+
+gpg --export --armor "$KEY_ID" > arch-pre-built.gpg
+echo "Public key written to arch-pre-built.gpg" >&2
+echo "" >&2
+
 echo "Add the following as GitHub secret GPG_PRIVATE_KEY:" >&2
 echo "" >&2
 

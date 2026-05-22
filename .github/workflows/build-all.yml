@@ -5,6 +5,8 @@ on:
     branches: [main, master]
   pull_request:
     branches: [main, master]
+  schedule:
+    - cron: "0 0 * * 0"
   workflow_dispatch:
 
 concurrency:
@@ -58,7 +60,30 @@ jobs:
             exit 0
           fi
           echo "tag=$TAG" >> "$GITHUB_OUTPUT"
-          gh release delete "$TAG" --repo "$REPO" --yes --cleanup-tag || true
+          if [ "$TAG" = "latest" ]; then
+            if INFO=$(gh release view latest --repo "$REPO" --json createdAt,body,targetCommitish 2>/dev/null); then
+              OLD_DATE=$(echo "$INFO" | jq -r .createdAt | cut -d'T' -f1)
+              OLD_BODY=$(echo "$INFO" | jq -r .body)
+              OLD_TARGET=$(echo "$INFO" | jq -r .targetCommitish)
+              NEW_TAG="build-$OLD_DATE"
+              mkdir -p /tmp/old-release
+              gh release download latest --repo "$REPO" --dir /tmp/old-release || true
+              gh release delete "$NEW_TAG" --repo "$REPO" --yes --cleanup-tag 2>/dev/null || true
+              gh release delete latest --repo "$REPO" --yes --cleanup-tag
+              gh release create "$NEW_TAG" \
+                --repo "$REPO" \
+                --target "$OLD_TARGET" \
+                --title "Packages $NEW_TAG" \
+                --notes "$OLD_BODY"
+              shopt -s nullglob
+              files=(/tmp/old-release/*)
+              if [ ${#files[@]} -gt 0 ]; then
+                gh release upload "$NEW_TAG" --repo "$REPO" "${files[@]}"
+              fi
+            fi
+          else
+            gh release delete "$TAG" --repo "$REPO" --yes --cleanup-tag || true
+          fi
           gh release create "$TAG" \
             --repo "$REPO" \
             --target "$TARGET" \
@@ -125,8 +150,8 @@ jobs:
           run: |
             gpg --batch --import /tmp/gpg-private.key
             mkdir -p /site
-            gpg --export --armor > /site/arch-aur-pre-built.gpg
-            find /packages -maxdepth 1 -name "*.pkg.tar.*" \! -name "*.sig" -exec repo-add --sign /site/arch-aur-pre-built.db.tar.gz {} +
+            gpg --export --armor > /site/arch-pre-built.gpg
+            find /packages -maxdepth 1 -name "*.pkg.tar.*" \! -name "*.sig" -exec repo-add --sign /site/arch-pre-built.db.tar.gz {} +
 
       - name: Upload to release
         env:
