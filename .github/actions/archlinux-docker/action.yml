@@ -13,20 +13,22 @@ inputs:
 runs:
   using: composite
   steps:
-    - name: Get current date
-      id: date
+    - name: Compute metadata
+      id: meta
       shell: bash
-      run: echo "date=$(date +%Y%m%d)" >> "$GITHUB_OUTPUT"
+      run: |
+        echo "arch=$(echo '${{ runner.arch }}' | tr '[:upper:]' '[:lower:]')" >> "$GITHUB_OUTPUT"
+        echo "date=$(date +%Y%m%d)" >> "$GITHUB_OUTPUT"
 
     - name: Cache Docker image
       uses: actions/cache@v5
       id: docker-cache
       with:
-        path: /tmp/archlinux-${{ runner.arch }}.tar.zst
-        key: archlinux-${{ runner.arch }}-${{ steps.date.outputs.date }}
+        path: /tmp/archlinux-${{ steps.meta.outputs.arch }}.tar.zst
+        key: archlinux-${{ steps.meta.outputs.arch }}-${{ steps.meta.outputs.date }}
 
     - name: Build Arch Linux ARM Docker image
-      if: runner.arch == 'ARM64' && steps.docker-cache.outputs.cache-hit != 'true'
+      if: steps.meta.outputs.arch == 'arm64' && steps.docker-cache.outputs.cache-hit != 'true'
       shell: bash
       run: |
         curl -LO http://os.archlinuxarm.org/os/ArchLinuxARM-aarch64-latest.tar.gz
@@ -42,11 +44,11 @@ runs:
         FROM scratch
         COPY --from=base / /
         DOCKERFILE
-        docker build -f /tmp/Dockerfile.archlinux -t archlinux-${{ runner.arch }} .
-        docker save archlinux-${{ runner.arch }} | zstd -T0 -o /tmp/archlinux-${{ runner.arch }}.tar.zst
+        docker build -f /tmp/Dockerfile.archlinux -t archlinux-${{ steps.meta.outputs.arch }} .
+        docker save archlinux-${{ steps.meta.outputs.arch }} | zstd -T0 -o /tmp/archlinux-${{ steps.meta.outputs.arch }}.tar.zst
 
     - name: Build Arch Linux x86 Docker image
-      if: runner.arch == 'X64' && steps.docker-cache.outputs.cache-hit != 'true'
+      if: steps.meta.outputs.arch == 'x64' && steps.docker-cache.outputs.cache-hit != 'true'
       shell: bash
       run: |
         cat <<'DOCKERFILE' > /tmp/Dockerfile.archlinux
@@ -58,13 +60,13 @@ runs:
         FROM scratch
         COPY --from=base / /
         DOCKERFILE
-        docker build -f /tmp/Dockerfile.archlinux -t archlinux-${{ runner.arch }} .
-        docker save archlinux-${{ runner.arch }} | zstd -T0 -o /tmp/archlinux-${{ runner.arch }}.tar.zst
+        docker build -f /tmp/Dockerfile.archlinux -t archlinux-${{ steps.meta.outputs.arch }} .
+        docker save archlinux-${{ steps.meta.outputs.arch }} | zstd -T0 -o /tmp/archlinux-${{ steps.meta.outputs.arch }}.tar.zst
 
     - name: Import Docker image
       if: steps.docker-cache.outputs.cache-hit == 'true'
       shell: bash
-      run: zstd -d /tmp/archlinux-${{ runner.arch }}.tar.zst --stdout | docker load
+      run: zstd -d /tmp/archlinux-${{ steps.meta.outputs.arch }}.tar.zst --stdout | docker load
 
     - name: Write script
       shell: bash
@@ -85,5 +87,5 @@ runs:
         done <<< "${{ inputs.mount }}"
         docker run --rm $VOLUME_ARGS \
           -v /tmp/archlinux-docker-run.sh:/tmp/archlinux-docker-run.sh:ro \
-          archlinux-${{ runner.arch }} \
+          archlinux-${{ steps.meta.outputs.arch }} \
           bash /tmp/archlinux-docker-run.sh
