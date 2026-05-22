@@ -1,0 +1,135 @@
+name: Build and release packages
+
+on:
+  push:
+    branches: [main, master]
+  pull_request:
+    branches: [main, master]
+  workflow_dispatch:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: write
+
+jobs:
+  build-image:
+    runs-on: ubuntu-24.04-arm
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+      - name: Build and cache Docker image
+        uses: ./.github/actions/archlinux-docker
+        with:
+          run: "true"
+
+  create-release:
+    runs-on: ubuntu-latest
+    outputs:
+      tag: ${{ steps.tag.outputs.tag }}
+    steps:
+      - name: Create release
+        id: tag
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          EVENT_NAME: ${{ github.event_name }}
+          REF_NAME: ${{ github.ref_name }}
+          SHA: ${{ github.sha }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+          PR_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+          REPO: ${{ github.repository }}
+        run: |
+          if [ "$EVENT_NAME" = "pull_request" ]; then
+            TAG="pr$PR_NUMBER"
+            TARGET="$PR_HEAD_SHA"
+            CURRENT=$(gh api "repos/$REPO/pulls/$PR_NUMBER" --jq .head.sha)
+          elif [ "$EVENT_NAME" = "push" ] && { [ "$REF_NAME" = "main" ] || [ "$REF_NAME" = "master" ]; }; then
+            TAG="latest"
+            TARGET="$SHA"
+            CURRENT=$(gh api "repos/$REPO/branches/$REF_NAME" --jq .commit.sha)
+          else
+            echo "Event '$EVENT_NAME' on ref '$REF_NAME' — no release will be created"
+            exit 0
+          fi
+          if [ "$TARGET" != "$CURRENT" ]; then
+            echo "Triggering SHA $TARGET is no longer head ($CURRENT) — stale re-run, skipping release"
+            exit 0
+          fi
+          echo "tag=$TAG" >> "$GITHUB_OUTPUT"
+          gh release delete "$TAG" --repo "$REPO" --yes --cleanup-tag || true
+          gh release create "$TAG" \
+            --repo "$REPO" \
+            --target "$TARGET" \
+            --title "Packages $TAG" \
+            --notes "Automated build from commit $TARGET"
+
+  build-packages:
+    needs: [build-image, create-release]
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - package_repo: https://aur.archlinux.org/gcc13.git
+            package_name: gcc13
+          - package_repo: https://aur.archlinux.org/gcc14.git
+            package_name: gcc14
+          - package_repo: https://aur.archlinux.org/python310.git
+            package_name: python310
+          - package_repo: https://aur.archlinux.org/python311.git
+            package_name: python311
+          - package_repo: https://aur.archlinux.org/python312.git
+            package_name: python312
+          - package_repo: https://aur.archlinux.org/python313.git
+            package_name: python313
+    uses: ./.github/workflows/build-package.yml
+    with:
+      package_repo: ${{ matrix.package_repo }}
+      package_name: ${{ matrix.package_name }}
+      release_tag: ${{ needs.create-release.outputs.tag }}
+      pgp_keys: ${{ matrix.pgp_keys }}
+    secrets:
+      GPG_PRIVATE_KEY: ${{ secrets.GPG_PRIVATE_KEY }}
+
+  deploy-site:
+    needs: [create-release, build-image, build-packages]
+    if: needs.create-release.outputs.tag != ''
+    runs-on: ubuntu-24.04-arm
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+
+      - name: Download package artifacts
+        uses: actions/download-artifact@v5
+        with:
+          pattern: pkg-*
+          path: packages
+          merge-multiple: true
+
+      - name: Initial setup
+        env:
+          GPG_KEY: ${{ secrets.GPG_PRIVATE_KEY }}
+        run: |
+          echo "$GPG_KEY" > /tmp/gpg-private.key
+          mkdir -p site packages
+
+      - name: Build pacman repo database and export GPG public key
+        uses: ./.github/actions/archlinux-docker
+        with:
+          mount: |
+            ${{ github.workspace }}/packages:/packages:ro
+            ${{ github.workspace }}/site:/site
+            /tmp/gpg-private.key:/tmp/gpg-private.key:ro
+          run: |
+            gpg --batch --import /tmp/gpg-private.key
+            mkdir -p /site
+            gpg --export --armor > /site/arch-aur-pre-built.gpg
+            find /packages -maxdepth 1 -name "*.pkg.tar.*" \! -name "*.sig" -exec repo-add --sign /site/arch-aur-pre-built.db.tar.gz {} +
+
+      - name: Upload to release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release upload "${{ needs.create-release.outputs.tag }}" site/* \
+            --repo "${{ github.repository }}"

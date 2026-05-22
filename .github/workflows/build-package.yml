@@ -1,0 +1,76 @@
+name: Build Arch Linux ARM package
+
+on:
+  workflow_call:
+    inputs:
+      package_repo:
+        description: "Git URL of the package repo containing the PKGBUILD"
+        required: true
+        type: string
+      package_name:
+        description: "Name of the package"
+        required: true
+        type: string
+      release_tag:
+        description: "Release tag to upload the package to"
+        required: false
+        type: string
+      pgp_keys:
+        description: "Space-separated PGP key IDs to import before building"
+        required: false
+        type: string
+    secrets:
+      GPG_PRIVATE_KEY:
+        description: "GPG private key for signing packages"
+        required: false
+
+jobs:
+  build:
+    runs-on: ubuntu-24.04-arm
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+
+      - name: Clone package repo
+        run: git clone "${{ inputs.package_repo }}" pkg
+
+      - name: Write GPG key
+        run: |
+          if [ -n "$GPG_KEY" ]; then
+            echo "$GPG_KEY" > /tmp/gpg-private.key
+          else
+            touch /tmp/gpg-private.key
+          fi
+        env:
+          GPG_KEY: ${{ secrets.GPG_PRIVATE_KEY }}
+
+      - name: Build package
+        uses: ./.github/actions/archlinux-docker
+        with:
+          mount: |
+            ${{ github.workspace }}/pkg:/pkg
+            /tmp/gpg-private.key:/tmp/gpg-private.key:ro
+          run: |
+            git config --file /etc/makepkg.d/gitconfig user.email "till@ehrengruber.ch"
+            git config --file /etc/makepkg.d/gitconfig user.name "Till Ehrengruber"
+            if [ -f /tmp/gpg-private.key ]; then
+              gpg --batch --import /tmp/gpg-private.key
+            fi
+            if [ -n "${{ inputs.pgp_keys }}" ]; then
+              gpg --recv-keys ${{ inputs.pgp_keys }}
+            fi
+            cd /pkg && makepkg -s --noconfirm --sign
+
+      - name: Upload package artifact
+        uses: actions/upload-artifact@v5
+        with:
+          name: pkg-${{ inputs.package_name }}
+          path: "pkg/*.pkg.tar.*"
+
+      - name: Upload to release
+        if: inputs.release_tag != ''
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release upload "${{ inputs.release_tag }}" pkg/*.pkg.tar.* \
+            --repo "${{ github.repository }}"

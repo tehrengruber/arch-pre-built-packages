@@ -1,0 +1,93 @@
+name: Run in Arch Linux Docker
+description: Load or build cached Arch Linux image (x86 or ARM) and run commands inside it
+
+inputs:
+  arch:
+    description: "Architecture: x86 or arm"
+    required: false
+    default: "x86"
+  run:
+    description: "Commands to run inside the container"
+    required: true
+  mount:
+    description: "Volumes to mount in host:container format (one per line)"
+    required: false
+    default: ""
+
+runs:
+  using: composite
+  steps:
+    - name: Get current date
+      id: date
+      shell: bash
+      run: echo "date=$(date +%Y%m%d)" >> "$GITHUB_OUTPUT"
+
+    - name: Cache Docker image
+      uses: actions/cache@v5
+      id: docker-cache
+      with:
+        path: /tmp/archlinux-${{ inputs.arch }}.tar.zst
+        key: archlinux-${{ inputs.arch }}-${{ steps.date.outputs.date }}
+
+    - name: Build Arch Linux ARM Docker image
+      if: inputs.arch == 'arm' && steps.docker-cache.outputs.cache-hit != 'true'
+      shell: bash
+      run: |
+        curl -LO http://os.archlinuxarm.org/os/ArchLinuxARM-aarch64-latest.tar.gz
+        cat <<'DOCKERFILE' > /tmp/Dockerfile.archlinux
+        FROM scratch AS base
+        ADD ArchLinuxARM-aarch64-latest.tar.gz /
+        RUN pacman-key --init && pacman-key --populate archlinuxarm
+        RUN sed -i '/^\[options\]/a DisableSandbox' /etc/pacman.conf
+        RUN pacman -Rdd --noconfirm $(pacman -Qq | grep '^linux') 2>/dev/null || true
+        RUN pacman -Syu --noconfirm base-devel git
+        RUN sed -i '0,/if (( EUID == 0 ))/s/if (( EUID == 0 ))/if false/' /usr/bin/makepkg
+        RUN pacman -Scc --noconfirm && rm -rf /var/log/* /tmp/* /var/cache/pacman/pkg/*
+        FROM scratch
+        COPY --from=base / /
+        DOCKERFILE
+        docker build -f /tmp/Dockerfile.archlinux -t archlinux-arm .
+        docker save archlinux-arm | zstd -T0 -o /tmp/archlinux-arm.tar.zst
+
+    - name: Build Arch Linux x86 Docker image
+      if: inputs.arch == 'x86' && steps.docker-cache.outputs.cache-hit != 'true'
+      shell: bash
+      run: |
+        cat <<'DOCKERFILE' > /tmp/Dockerfile.archlinux
+        FROM archlinux:base-devel AS base
+        RUN sed -i '/^\[options\]/a DisableSandbox' /etc/pacman.conf
+        RUN pacman -Syu --noconfirm git
+        RUN sed -i '0,/if (( EUID == 0 ))/s/if (( EUID == 0 ))/if false/' /usr/bin/makepkg
+        RUN pacman -Scc --noconfirm && rm -rf /var/log/* /tmp/* /var/cache/pacman/pkg/*
+        FROM scratch
+        COPY --from=base / /
+        DOCKERFILE
+        docker build -f /tmp/Dockerfile.archlinux -t archlinux-x86 .
+        docker save archlinux-x86 | zstd -T0 -o /tmp/archlinux-x86.tar.zst
+
+    - name: Import Docker image
+      if: steps.docker-cache.outputs.cache-hit == 'true'
+      shell: bash
+      run: zstd -d /tmp/archlinux-${{ inputs.arch }}.tar.zst --stdout | docker load
+
+    - name: Write script
+      shell: bash
+      run: |
+        cat > /tmp/archlinux-docker-run.sh << 'ARCHLINUX_DOCKER_SCRIPT_EOF'
+        set -eu
+        ${{ inputs.run }}
+        ARCHLINUX_DOCKER_SCRIPT_EOF
+        chmod +x /tmp/archlinux-docker-run.sh
+
+    - name: Run in container
+      shell: bash
+      run: |
+        VOLUME_ARGS=""
+        while IFS= read -r line; do
+          [ -z "$line" ] && continue
+          VOLUME_ARGS="$VOLUME_ARGS -v $line"
+        done <<< "${{ inputs.mount }}"
+        docker run --rm $VOLUME_ARGS \
+          -v /tmp/archlinux-docker-run.sh:/tmp/archlinux-docker-run.sh:ro \
+          archlinux-${{ inputs.arch }} \
+          bash /tmp/archlinux-docker-run.sh
