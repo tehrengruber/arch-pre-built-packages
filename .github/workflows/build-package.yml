@@ -23,6 +23,11 @@ on:
         description: "Space-separated PGP key IDs to import before building"
         required: false
         type: string
+      skip_tests:
+        description: "Skip the check() phase of makepkg ('true' to skip)"
+        required: false
+        type: string
+        default: ""
     secrets:
       GPG_PRIVATE_KEY:
         description: "GPG private key for signing packages"
@@ -48,11 +53,23 @@ jobs:
         env:
           GPG_KEY: ${{ secrets.GPG_PRIVATE_KEY }}
 
-      - name: Build package
+      - name: Fetch previous artifacts
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          mkdir -p prev
+          gh release download latest \
+            --repo "${{ github.repository }}" \
+            --dir prev \
+            --pattern "${{ inputs.package_name }}.aur-hash" \
+            --pattern "${{ inputs.package_name }}-*.pkg.tar.*" 2>/dev/null || true
+
+      - name: Build (or reuse) package
         uses: ./.github/actions/archlinux-docker
         with:
           mount: |
             ${{ github.workspace }}/pkg:/pkg
+            ${{ github.workspace }}/prev:/prev:ro
             /tmp/gpg-private.key:/tmp/gpg-private.key:ro
           run: |
             git config --file /etc/makepkg.d/gitconfig user.email "till@ehrengruber.ch"
@@ -63,18 +80,57 @@ jobs:
             if [ -n "${{ inputs.pgp_keys }}" ]; then
               gpg --recv-keys ${{ inputs.pgp_keys }}
             fi
-            cd /pkg && makepkg -s --noconfirm --sign
+
+            PKG="${{ inputs.package_name }}"
+            AUR_HEAD=$(git -C /pkg rev-parse HEAD)
+            REUSE=0
+
+            if [ -f "/prev/${PKG}.aur-hash" ] && [ "$(cat /prev/${PKG}.aur-hash)" = "$AUR_HEAD" ]; then
+              PREV_PKG=$(ls /prev/${PKG}-*.pkg.tar.* 2>/dev/null | grep -v '\.sig$' | head -1)
+              if [ -n "$PREV_PKG" ]; then
+                DRIFT=0
+                while IFS= read -r line; do
+                  case "$line" in
+                    "installed = "*)
+                      ENTRY="${line#installed = }"
+                      REST="${ENTRY%-*}"
+                      REL="${REST##*-}"; REST="${REST%-*}"
+                      VER="${REST##*-}"; NAME="${REST%-*}"
+                      CUR=$(pacman -Si "$NAME" 2>/dev/null | awk -F': +' '/^Version/ {print $2; exit}')
+                      if [ "$CUR" != "$VER-$REL" ]; then DRIFT=1; break; fi
+                      ;;
+                  esac
+                done < <(bsdtar -xOf "$PREV_PKG" .BUILDINFO)
+                if [ "$DRIFT" = "0" ]; then
+                  cp /prev/${PKG}-*.pkg.tar.* /pkg/
+                  echo "Reused previous build (AUR HEAD + BUILDINFO match)"
+                  REUSE=1
+                fi
+              fi
+            fi
+
+            if [ "$REUSE" = "0" ]; then
+              EXTRA_ARGS=""
+              if [ "${{ inputs.skip_tests }}" = "true" ]; then
+                EXTRA_ARGS="--nocheck"
+              fi
+              cd /pkg && makepkg -s --noconfirm --sign $EXTRA_ARGS
+            fi
+            echo "$AUR_HEAD" > "/pkg/${PKG}.aur-hash"
 
       - name: Upload package artifact
         uses: actions/upload-artifact@v5
         with:
           name: pkg-${{ inputs.package_name }}
-          path: "pkg/*.pkg.tar.*"
+          path: |
+            pkg/*.pkg.tar.*
+            pkg/*.aur-hash
 
       - name: Upload to release
         if: inputs.release_tag != ''
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          gh release upload "${{ inputs.release_tag }}" pkg/*.pkg.tar.* \
+          gh release upload "${{ inputs.release_tag }}" \
+            pkg/*.pkg.tar.* pkg/*.aur-hash \
             --repo "${{ github.repository }}"

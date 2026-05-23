@@ -27,12 +27,12 @@ jobs:
         with:
           run: "true"
 
-  create-release:
+  create-temp-release:
     runs-on: ubuntu-latest
     outputs:
       tag: ${{ steps.tag.outputs.tag }}
     steps:
-      - name: Create release
+      - name: Create temporary release
         id: tag
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -42,13 +42,15 @@ jobs:
           PR_NUMBER: ${{ github.event.pull_request.number }}
           PR_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
           REPO: ${{ github.repository }}
+          RUN_ID: ${{ github.run_id }}
         run: |
           if [ "$EVENT_NAME" = "pull_request" ]; then
-            TAG="pr$PR_NUMBER"
+            FINAL_TAG="pr$PR_NUMBER"
             TARGET="$PR_HEAD_SHA"
             CURRENT=$(gh api "repos/$REPO/pulls/$PR_NUMBER" --jq .head.sha)
-          elif [ "$EVENT_NAME" = "push" ] && { [ "$REF_NAME" = "main" ] || [ "$REF_NAME" = "master" ]; }; then
-            TAG="latest"
+          elif { [ "$EVENT_NAME" = "push" ] || [ "$EVENT_NAME" = "schedule" ] || [ "$EVENT_NAME" = "workflow_dispatch" ]; } \
+               && { [ "$REF_NAME" = "main" ] || [ "$REF_NAME" = "master" ]; }; then
+            FINAL_TAG="latest"
             TARGET="$SHA"
             CURRENT=$(gh api "repos/$REPO/branches/$REF_NAME" --jq .commit.sha)
           else
@@ -59,47 +61,34 @@ jobs:
             echo "Triggering SHA $TARGET is no longer head ($CURRENT) — stale re-run, skipping release"
             exit 0
           fi
-          echo "tag=$TAG" >> "$GITHUB_OUTPUT"
-          if [ "$TAG" = "latest" ]; then
-            if INFO=$(gh release view latest --repo "$REPO" --json createdAt,body,targetCommitish 2>/dev/null); then
-              OLD_DATE=$(echo "$INFO" | jq -r .createdAt | cut -d'T' -f1)
-              OLD_BODY=$(echo "$INFO" | jq -r .body)
-              OLD_TARGET=$(echo "$INFO" | jq -r .targetCommitish)
-              NEW_TAG="build-$OLD_DATE"
-              mkdir -p /tmp/old-release
-              gh release download latest --repo "$REPO" --dir /tmp/old-release || true
-              gh release delete "$NEW_TAG" --repo "$REPO" --yes --cleanup-tag 2>/dev/null || true
-              gh release delete latest --repo "$REPO" --yes --cleanup-tag
-              gh release create "$NEW_TAG" \
-                --repo "$REPO" \
-                --target "$OLD_TARGET" \
-                --title "Packages $NEW_TAG" \
-                --notes "$OLD_BODY"
-              shopt -s nullglob
-              files=(/tmp/old-release/*)
-              if [ ${#files[@]} -gt 0 ]; then
-                gh release upload "$NEW_TAG" --repo "$REPO" "${files[@]}"
-              fi
-            fi
-          else
-            gh release delete "$TAG" --repo "$REPO" --yes --cleanup-tag || true
-          fi
-          gh release create "$TAG" \
+          # Clean up orphaned pending releases from prior failed/cancelled runs
+          gh release list --repo "$REPO" --json tagName \
+            --jq '.[] | select(.tagName | startswith("pending-")) | .tagName' \
+            | while read -r ORPHAN; do
+              gh release delete "$ORPHAN" --repo "$REPO" --yes || true
+              gh api -X DELETE "repos/$REPO/git/refs/tags/$ORPHAN" 2>/dev/null || true
+            done
+          TEMP_TAG="pending-$FINAL_TAG-$RUN_ID"
+          gh release create "$TEMP_TAG" \
             --repo "$REPO" \
             --target "$TARGET" \
-            --title "Packages $TAG" \
-            --notes "Automated build from commit $TARGET"
+            --title "Packages $FINAL_TAG (pending)" \
+            --notes "Pending build from $TARGET" \
+            --draft
+          echo "tag=$TEMP_TAG" >> "$GITHUB_OUTPUT"
 
   build-packages:
-    needs: [build-image, create-release]
+    needs: [build-image, create-temp-release]
     strategy:
       fail-fast: false
       matrix:
         include:
           - package_repo: https://aur.archlinux.org/gcc13.git
             package_name: gcc13
+            skip_tests: "true"
           - package_repo: https://aur.archlinux.org/gcc14.git
             package_name: gcc14
+            skip_tests: "true"
           - package_repo: https://aur.archlinux.org/python310.git
             package_name: python310
           - package_repo: https://aur.archlinux.org/python311.git
@@ -113,14 +102,15 @@ jobs:
       runner: *runner
       package_repo: ${{ matrix.package_repo }}
       package_name: ${{ matrix.package_name }}
-      release_tag: ${{ needs.create-release.outputs.tag }}
+      release_tag: ${{ needs.create-temp-release.outputs.tag }}
       pgp_keys: ${{ matrix.pgp_keys }}
+      skip_tests: ${{ matrix.skip_tests }}
     secrets:
       GPG_PRIVATE_KEY: ${{ secrets.GPG_PRIVATE_KEY }}
 
   deploy-site:
-    needs: [create-release, build-image, build-packages]
-    if: needs.create-release.outputs.tag != ''
+    needs: [create-temp-release, build-image, build-packages]
+    if: needs.create-temp-release.outputs.tag != ''
     runs-on: *runner
     steps:
       - name: Checkout
@@ -157,5 +147,5 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          gh release upload "${{ needs.create-release.outputs.tag }}" site/* \
+          gh release upload "${{ needs.create-temp-release.outputs.tag }}" site/* \
             --repo "${{ github.repository }}"

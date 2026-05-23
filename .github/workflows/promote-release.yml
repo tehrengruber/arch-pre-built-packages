@@ -1,0 +1,69 @@
+name: Promote release
+
+on:
+  workflow_run:
+    workflows: ["Build and release packages"]
+    types: [completed]
+
+concurrency:
+  group: promote-release
+  cancel-in-progress: false
+
+permissions:
+  contents: write
+
+jobs:
+  promote:
+    if: github.event.workflow_run.conclusion == 'success'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+
+      - name: Find pending release
+        id: find
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          RUN_ID: ${{ github.event.workflow_run.id }}
+          REPO: ${{ github.repository }}
+        run: |
+          TEMP_TAG=$(gh release list --repo "$REPO" --json tagName \
+            --jq ".[] | select(.tagName | startswith(\"pending-\")) | select(.tagName | endswith(\"-$RUN_ID\")) | .tagName" \
+            | head -1)
+          if [ -z "$TEMP_TAG" ]; then
+            echo "No pending release for run $RUN_ID — nothing to promote"
+            exit 0
+          fi
+          FINAL_TAG="${TEMP_TAG#pending-}"
+          FINAL_TAG="${FINAL_TAG%-$RUN_ID}"
+          echo "tag=$TEMP_TAG" >> "$GITHUB_OUTPUT"
+          echo "final_tag=$FINAL_TAG" >> "$GITHUB_OUTPUT"
+
+      - name: Determine archive tag
+        id: archive
+        if: steps.find.outputs.final_tag == 'latest'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          if INFO=$(gh release view latest --repo "${{ github.repository }}" --json createdAt 2>/dev/null); then
+            OLD_DATE=$(echo "$INFO" | jq -r .createdAt | cut -d'T' -f1)
+            echo "tag=build-$OLD_DATE" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Archive previous latest
+        if: steps.archive.outputs.tag != ''
+        uses: ./.github/actions/rename-release
+        with:
+          from_tag: latest
+          to_tag: ${{ steps.archive.outputs.tag }}
+          repo: ${{ github.repository }}
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Promote temp release
+        if: steps.find.outputs.tag != ''
+        uses: ./.github/actions/rename-release
+        with:
+          from_tag: ${{ steps.find.outputs.tag }}
+          to_tag: ${{ steps.find.outputs.final_tag }}
+          repo: ${{ github.repository }}
+          token: ${{ secrets.GITHUB_TOKEN }}
