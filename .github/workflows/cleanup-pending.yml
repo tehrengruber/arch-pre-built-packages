@@ -1,0 +1,27 @@
+name: Cleanup stale pending releases
+
+on:
+  schedule:
+    - cron: "0 3 * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  cleanup:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Delete pending releases older than 1 day
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          REPO: ${{ github.repository }}
+        run: |
+          THRESHOLD=$(date -u -d '1 day ago' +%Y-%m-%dT%H:%M:%SZ)
+          gh release list --repo "$REPO" --json tagName,createdAt --jq \
+            ".[] | select(.tagName | startswith(\"pending-\")) | select(.createdAt < \"$THRESHOLD\") | .tagName" \
+            | while read -r TAG; do
+              echo "Deleting stale pending release: $TAG"
+              gh release delete "$TAG" --repo "$REPO" --yes || true
+              gh api -X DELETE "repos/$REPO/git/refs/tags/$TAG" 2>/dev/null || true
+            done

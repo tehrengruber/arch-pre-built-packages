@@ -61,13 +61,6 @@ jobs:
             echo "Triggering SHA $TARGET is no longer head ($CURRENT) — stale re-run, skipping release"
             exit 0
           fi
-          # Clean up orphaned pending releases from prior failed/cancelled runs
-          gh release list --repo "$REPO" --json tagName \
-            --jq '.[] | select(.tagName | startswith("pending-")) | .tagName' \
-            | while read -r ORPHAN; do
-              gh release delete "$ORPHAN" --repo "$REPO" --yes || true
-              gh api -X DELETE "repos/$REPO/git/refs/tags/$ORPHAN" 2>/dev/null || true
-            done
           TEMP_TAG="pending-$FINAL_TAG-$RUN_ID"
           gh release create "$TEMP_TAG" \
             --repo "$REPO" \
@@ -83,20 +76,20 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          - package_repo: https://aur.archlinux.org/gcc13.git
-            package_name: gcc13
-            skip_tests: "true"
-          - package_repo: https://aur.archlinux.org/gcc14.git
-            package_name: gcc14
-            skip_tests: "true"
-          - package_repo: https://aur.archlinux.org/python310.git
-            package_name: python310
-          - package_repo: https://aur.archlinux.org/python311.git
-            package_name: python311
-          - package_repo: https://aur.archlinux.org/python312.git
-            package_name: python312
-          - package_repo: https://aur.archlinux.org/python313.git
-            package_name: python313
+#          - package_repo: https://aur.archlinux.org/gcc13.git
+#            package_name: gcc13
+#            skip_tests: "true"
+#          - package_repo: https://aur.archlinux.org/gcc14.git
+#            package_name: gcc14
+#            skip_tests: "true"
+#          - package_repo: https://aur.archlinux.org/python310.git
+#            package_name: python310
+#          - package_repo: https://aur.archlinux.org/python311.git
+#            package_name: python311
+#          - package_repo: https://aur.archlinux.org/python312.git
+#            package_name: python312
+#          - package_repo: https://aur.archlinux.org/python313.git
+#            package_name: python313
           - package_repo: https://aur.archlinux.org/yay.git
             package_name: yay
           - package_repo: https://aur.archlinux.org/claude-code.git

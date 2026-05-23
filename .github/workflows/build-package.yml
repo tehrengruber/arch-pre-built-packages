@@ -40,9 +40,6 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v5
 
-      - name: Clone package repo
-        run: git clone "${{ inputs.package_repo }}" pkg
-
       - name: Write GPG key
         run: |
           if [ -n "$GPG_KEY" ]; then
@@ -56,13 +53,30 @@ jobs:
       - name: Fetch previous artifacts
         env:
           GH_TOKEN: ${{ github.token }}
+          PKG: ${{ inputs.package_name }}
+          REPO: ${{ github.repository }}
+          TEMP_TAG: ${{ inputs.release_tag }}
         run: |
-          mkdir -p prev
-          gh release download latest \
-            --repo "${{ github.repository }}" \
-            --dir prev \
-            --pattern "${{ inputs.package_name }}.aur-hash" \
-            --pattern "${{ inputs.package_name }}-*.pkg.tar.*" 2>/dev/null || true
+          mkdir -p prev pkg
+          if [ -n "$TEMP_TAG" ]; then
+            WITHOUT_PREFIX="${TEMP_TAG#pending-}"
+            FINAL_TAG="${WITHOUT_PREFIX%-*}"
+          else
+            FINAL_TAG="latest"
+          fi
+          TAGS=$(gh release list --repo "$REPO" --json tagName,createdAt --jq \
+            --arg ft "$FINAL_TAG" \
+            '[.[] | select(.tagName == $ft or (.tagName | startswith("pending-" + $ft + "-")))] | sort_by(.createdAt) | reverse | .[].tagName')
+          for TAG in $TAGS; do
+            gh release download "$TAG" --repo "$REPO" --dir prev \
+              --pattern "${PKG}.aur-hash" \
+              --pattern "${PKG}-*.pkg.tar.*" 2>/dev/null || true
+            if [ -f "prev/${PKG}.aur-hash" ] && ls prev/${PKG}-*.pkg.tar.* >/dev/null 2>&1; then
+              echo "Found previous artifacts in $TAG"
+              break
+            fi
+            rm -f prev/${PKG}.aur-hash prev/${PKG}-*.pkg.tar.* 2>/dev/null || true
+          done
 
       - name: Build (or reuse) package
         uses: ./.github/actions/archlinux-docker
@@ -81,6 +95,7 @@ jobs:
               gpg --recv-keys ${{ inputs.pgp_keys }}
             fi
 
+            git clone "${{ inputs.package_repo }}" /pkg
             PKG="${{ inputs.package_name }}"
             AUR_HEAD=$(git -C /pkg rev-parse HEAD)
             REUSE=0
