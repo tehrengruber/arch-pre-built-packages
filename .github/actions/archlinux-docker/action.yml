@@ -57,6 +57,7 @@ runs:
         RUN sed -i '/^\[options\]/a DisableSandbox' /etc/pacman.conf
         RUN pacman -Syu --noconfirm git
         RUN sed -i '0,/if (( EUID == 0 ))/s/if (( EUID == 0 ))/if false/' /usr/bin/makepkg
+        RUN git config --system --add safe.directory '*'
         RUN pacman -Scc --noconfirm && rm -rf /var/log/* /tmp/* /var/cache/pacman/pkg/*
         FROM scratch
         COPY --from=base / /
