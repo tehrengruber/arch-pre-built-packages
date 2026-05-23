@@ -64,9 +64,9 @@ jobs:
           else
             FINAL_TAG="latest"
           fi
-          TAGS=$(gh release list --repo "$REPO" --json tagName,createdAt --jq \
-            --arg ft "$FINAL_TAG" \
-            '[.[] | select(.tagName == $ft or (.tagName | startswith("pending-" + $ft + "-")))] | sort_by(.createdAt) | reverse | .[].tagName')
+          TAGS=$(gh release list --repo "$REPO" --json tagName,createdAt \
+            | jq -r --arg ft "$FINAL_TAG" \
+              '[.[] | select(.tagName == $ft or (.tagName | startswith("pending-" + $ft + "-")))] | sort_by(.createdAt) | reverse | .[].tagName')
           for TAG in $TAGS; do
             gh release download "$TAG" --repo "$REPO" --dir prev \
               --pattern "${PKG}.aur-hash" \
