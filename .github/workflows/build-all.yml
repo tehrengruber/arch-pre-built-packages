@@ -97,6 +97,10 @@ jobs:
             package_name: python312
           - package_repo: https://aur.archlinux.org/python313.git
             package_name: python313
+          - package_repo: https://aur.archlinux.org/yay.git
+            package_name: yay
+          - package_repo: https://aur.archlinux.org/claude-code.git
+            package_name: claude-code
     uses: ./.github/workflows/build-package.yml
     with:
       runner: *runner
