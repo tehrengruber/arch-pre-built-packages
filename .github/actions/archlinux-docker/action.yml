@@ -40,6 +40,7 @@ runs:
         RUN pacman -Rdd --noconfirm $(pacman -Qq | grep '^linux') 2>/dev/null || true
         RUN pacman -Syu --noconfirm base-devel git
         RUN sed -i '0,/if (( EUID == 0 ))/s/if (( EUID == 0 ))/if false/' /usr/bin/makepkg
+        RUN git config --system --add safe.directory '*'
         RUN pacman -Scc --noconfirm && rm -rf /var/log/* /tmp/* /var/cache/pacman/pkg/*
         FROM scratch
         COPY --from=base / /
