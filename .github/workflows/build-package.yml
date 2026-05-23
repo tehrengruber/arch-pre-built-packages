@@ -57,7 +57,7 @@ jobs:
           REPO: ${{ github.repository }}
           TEMP_TAG: ${{ inputs.release_tag }}
         run: |
-          mkdir -p prev pkg
+          mkdir -p prev pkg-out
           if [ -n "$TEMP_TAG" ]; then
             WITHOUT_PREFIX="${TEMP_TAG#pending-}"
             FINAL_TAG="${WITHOUT_PREFIX%-*}"
@@ -82,7 +82,7 @@ jobs:
         uses: ./.github/actions/archlinux-docker
         with:
           mount: |
-            ${{ github.workspace }}/pkg:/pkg
+            ${{ github.workspace }}/pkg-out:/pkg-out
             ${{ github.workspace }}/prev:/prev:ro
             /tmp/gpg-private.key:/tmp/gpg-private.key:ro
           run: |
@@ -133,13 +133,15 @@ jobs:
             fi
             echo "$AUR_HEAD" > "/pkg/${PKG}.aur-hash"
 
+            cp /pkg/*.pkg.tar.* "/pkg/${PKG}.aur-hash" /pkg-out/
+
       - name: Upload package artifact
         uses: actions/upload-artifact@v5
         with:
           name: pkg-${{ inputs.package_name }}
           path: |
-            pkg/*.pkg.tar.*
-            pkg/*.aur-hash
+            pkg-out/*.pkg.tar.*
+            pkg-out/*.aur-hash
 
       - name: Upload to release
         if: inputs.release_tag != ''
@@ -147,5 +149,5 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           gh release upload "${{ inputs.release_tag }}" \
-            pkg/*.pkg.tar.* pkg/*.aur-hash \
+            pkg-out/*.pkg.tar.* pkg-out/*.aur-hash \
             --repo "${{ github.repository }}"
