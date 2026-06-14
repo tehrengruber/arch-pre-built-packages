@@ -94,6 +94,8 @@ jobs:
             package_name: yay
           - package_repo: https://aur.archlinux.org/claude-code.git
             package_name: claude-code
+          - package_repo: https://github.com/tehrengruber/pingvin-share-x-pkg
+            package_name: pingvin-share-x
     uses: ./.github/workflows/build-package.yml
     with:
       runner: *runner
