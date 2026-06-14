@@ -37,10 +37,15 @@ runs:
         : "${TITLE:=Packages $TO}"
         DIR=$(mktemp -d)
         gh release download "$FROM" --repo "$REPO" --dir "$DIR" || true
+
+        # Create and fully populate the destination FIRST; only delete the
+        # source once it is safely in place. With `set -e`, a failure here
+        # (e.g. a transient API 403) aborts the step before the source is
+        # touched, so both releases survive and the job can simply be re-run.
+        # The previous order deleted the source before creating the
+        # destination, so a failed create permanently lost the only copy.
         gh release delete "$TO" --repo "$REPO" --yes 2>/dev/null || true
         gh api -X DELETE "repos/$REPO/git/refs/tags/$TO" 2>/dev/null || true
-        gh release delete "$FROM" --repo "$REPO" --yes
-        gh api -X DELETE "repos/$REPO/git/refs/tags/$FROM" 2>/dev/null || true
         gh release create "$TO" \
           --repo "$REPO" \
           --target "$TARGET" \
@@ -51,4 +56,13 @@ runs:
         if [ ${#files[@]} -gt 0 ]; then
           gh release upload "$TO" --repo "$REPO" "${files[@]}"
         fi
+
+        # Final safety check: never delete the source unless the destination is
+        # confirmed to exist. With `set -e` this aborts the step before any
+        # deletion if the create/upload above did not actually land.
+        gh release view "$TO" --repo "$REPO" >/dev/null
+
+        # Destination is created and populated — now it is safe to remove the source.
+        gh release delete "$FROM" --repo "$REPO" --yes
+        gh api -X DELETE "repos/$REPO/git/refs/tags/$FROM" 2>/dev/null || true
         rm -rf "$DIR"
