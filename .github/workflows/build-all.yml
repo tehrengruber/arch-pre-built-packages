@@ -110,7 +110,10 @@ jobs:
       fail-fast: false
       matrix:
         include: ${{ fromJSON(needs.prepare-packages.outputs.packages) }}
-    uses: ./.github/workflows/build-package.yml
+    # Full path + ref (not ./): a relative ref in a reusable workflow resolves
+    # against the repo that started the run, so cross-repo callers would not
+    # find it. Keep this pinned to the same tag as the action refs.
+    uses: tehrengruber/arch-pre-built-packages/.github/workflows/build-package.yml@v0.1
     with:
       runner: ${{ inputs.runner }}
       package_repo: ${{ matrix.package_repo }}
