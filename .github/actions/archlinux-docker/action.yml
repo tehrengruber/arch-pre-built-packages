@@ -37,7 +37,7 @@ runs:
         ADD ArchLinuxARM-aarch64-latest.tar.gz /
         RUN pacman-key --init && pacman-key --populate archlinuxarm
         RUN sed -i '/^\[options\]/a DisableSandbox' /etc/pacman.conf
-        RUN pacman -Rdd --noconfirm $(pacman -Qq | grep '^linux') 2>/dev/null || true
+        RUN pacman -Rdd --noconfirm $(pacman -Qq | grep '^linux' | grep -v '^linux-api-headers$') 2>/dev/null || true
         RUN pacman -Syu --noconfirm base-devel git
         RUN sed -i '0,/if (( EUID == 0 ))/s/if (( EUID == 0 ))/if false/' /usr/bin/makepkg
         RUN git config --system --add safe.directory '*'
