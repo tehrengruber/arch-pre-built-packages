@@ -19,13 +19,16 @@ runs:
       run: |
         echo "arch=$(echo '${{ runner.arch }}' | tr '[:upper:]' '[:lower:]')" >> "$GITHUB_OUTPUT"
         echo "date=$(date +%Y%m%d)" >> "$GITHUB_OUTPUT"
+        # Hash the action's own file (works cross-repo); hashFiles() only sees
+        # the caller's workspace, which doesn't contain this action.
+        echo "hash=$(sha256sum "$GITHUB_ACTION_PATH/action.yml" | cut -c1-12)" >> "$GITHUB_OUTPUT"
 
     - name: Cache Docker image
       uses: actions/cache@v5
       id: docker-cache
       with:
         path: /tmp/archlinux-${{ steps.meta.outputs.arch }}.tar.zst
-        key: archlinux-${{ steps.meta.outputs.arch }}-${{ steps.meta.outputs.date }}-${{ hashFiles('.github/actions/archlinux-docker/action.yml') }}
+        key: archlinux-${{ steps.meta.outputs.arch }}-${{ steps.meta.outputs.date }}-${{ steps.meta.outputs.hash }}
 
     - name: Build Arch Linux ARM Docker image
       if: steps.meta.outputs.arch == 'arm64' && steps.docker-cache.outputs.cache-hit != 'true'
