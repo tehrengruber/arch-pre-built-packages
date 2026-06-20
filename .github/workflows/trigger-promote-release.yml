@@ -1,0 +1,19 @@
+name: Promote release
+
+on:
+  workflow_run:
+    # Must match the `name:` of the build trigger workflow (trigger-build-all.yml).
+    workflows: ["Build and release packages"]
+    types: [completed]
+
+concurrency:
+  group: promote-release
+  cancel-in-progress: false
+
+permissions:
+  contents: write
+
+jobs:
+  promote:
+    uses: ./.github/workflows/promote-release.yml
+    secrets: inherit

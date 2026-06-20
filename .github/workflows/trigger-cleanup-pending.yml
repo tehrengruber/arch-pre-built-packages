@@ -1,0 +1,14 @@
+name: Cleanup stale pending releases
+
+on:
+  schedule:
+    - cron: "0 3 * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  cleanup:
+    uses: ./.github/workflows/cleanup-pending.yml
+    secrets: inherit

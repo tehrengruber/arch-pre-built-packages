@@ -1,29 +1,43 @@
-name: Build and release packages
+name: Build and release packages (reusable)
 
 on:
-  push:
-    branches: [main, master]
-  pull_request:
-    branches: [main, master]
-  schedule:
-    - cron: "0 0 * * 0"
-  workflow_dispatch:
-
-concurrency:
-  group: ${{ github.workflow }}-${{ github.ref }}
-  cancel-in-progress: true
+  workflow_call:
+    inputs:
+      runner:
+        description: "Runner label for the image build and package builds (the release/orchestration jobs always run on ubuntu-latest)"
+        required: false
+        type: string
+        default: ubuntu-latest
+      packages_file:
+        description: >-
+          Path (relative to the repo root) of a YAML file listing the packages
+          to build. Each entry has package_repo and package_name, plus optional
+          skip_tests and pgp_keys.
+        required: false
+        type: string
+        default: .github/packages.yml
+      repo_db_name:
+        description: "Base name of the published repo (creates <name>.db.tar.gz and <name>.gpg)"
+        required: true
+        type: string
+    secrets:
+      # Callers in a different org/enterprise cannot use `secrets: inherit`; they
+      # must pass GPG_PRIVATE_KEY explicitly.
+      GPG_PRIVATE_KEY:
+        description: "GPG private key for signing packages"
+        required: true
 
 permissions:
   contents: write
 
 jobs:
   build-image:
-    runs-on: &runner ubuntu-latest
+    runs-on: ${{ inputs.runner }}
     steps:
       - name: Checkout
         uses: actions/checkout@v5
       - name: Build and cache Docker image
-        uses: ./.github/actions/archlinux-docker
+        uses: tehrengruber/arch-pre-built-packages/.github/actions/archlinux-docker@v0.1
         with:
           run: "true"
 
@@ -44,12 +58,13 @@ jobs:
           REPO: ${{ github.repository }}
           RUN_ID: ${{ github.run_id }}
         run: |
+          DEFAULT_BRANCH=$(gh api "repos/$REPO" --jq .default_branch)
           if [ "$EVENT_NAME" = "pull_request" ]; then
             FINAL_TAG="pr$PR_NUMBER"
             TARGET="$PR_HEAD_SHA"
             CURRENT=$(gh api "repos/$REPO/pulls/$PR_NUMBER" --jq .head.sha)
           elif { [ "$EVENT_NAME" = "push" ] || [ "$EVENT_NAME" = "schedule" ] || [ "$EVENT_NAME" = "workflow_dispatch" ]; } \
-               && { [ "$REF_NAME" = "main" ] || [ "$REF_NAME" = "master" ]; }; then
+               && [ "$REF_NAME" = "$DEFAULT_BRANCH" ]; then
             FINAL_TAG="latest"
             TARGET="$SHA"
             CURRENT=$(gh api "repos/$REPO/branches/$REF_NAME" --jq .commit.sha)
@@ -70,35 +85,34 @@ jobs:
             --draft
           echo "tag=$TEMP_TAG" >> "$GITHUB_OUTPUT"
 
+  prepare-packages:
+    runs-on: ubuntu-latest
+    outputs:
+      packages: ${{ steps.parse.outputs.packages }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+      - name: Convert package list to JSON
+        id: parse
+        env:
+          PACKAGES_FILE: ${{ inputs.packages_file }}
+        run: |
+          PACKAGES=$(yq -o=json -I=0 '.' "$PACKAGES_FILE")
+          if [ -z "$PACKAGES" ] || [ "$PACKAGES" = "null" ]; then
+            echo "No packages found in $PACKAGES_FILE" >&2
+            exit 1
+          fi
+          echo "packages=$PACKAGES" >> "$GITHUB_OUTPUT"
+
   build-packages:
-    needs: [build-image, create-temp-release]
+    needs: [build-image, create-temp-release, prepare-packages]
     strategy:
       fail-fast: false
       matrix:
-        include:
-          - package_repo: https://aur.archlinux.org/gcc13.git
-            package_name: gcc13
-            skip_tests: "true"
-          - package_repo: https://aur.archlinux.org/gcc14.git
-            package_name: gcc14
-            skip_tests: "true"
-          - package_repo: https://aur.archlinux.org/python310.git
-            package_name: python310
-          - package_repo: https://aur.archlinux.org/python311.git
-            package_name: python311
-          - package_repo: https://aur.archlinux.org/python312.git
-            package_name: python312
-          - package_repo: https://aur.archlinux.org/python313.git
-            package_name: python313
-          - package_repo: https://aur.archlinux.org/yay.git
-            package_name: yay
-          - package_repo: https://aur.archlinux.org/claude-code.git
-            package_name: claude-code
-          - package_repo: https://github.com/tehrengruber/pingvin-share-x-pkg
-            package_name: pingvin-share-x
+        include: ${{ fromJSON(needs.prepare-packages.outputs.packages) }}
     uses: ./.github/workflows/build-package.yml
     with:
-      runner: *runner
+      runner: ${{ inputs.runner }}
       package_repo: ${{ matrix.package_repo }}
       package_name: ${{ matrix.package_name }}
       release_tag: ${{ needs.create-temp-release.outputs.tag }}
@@ -110,7 +124,7 @@ jobs:
   deploy-site:
     needs: [create-temp-release, build-image, build-packages]
     if: needs.create-temp-release.outputs.tag != ''
-    runs-on: *runner
+    runs-on: ${{ inputs.runner }}
     steps:
       - name: Checkout
         uses: actions/checkout@v5
@@ -126,21 +140,22 @@ jobs:
         env:
           GPG_KEY: ${{ secrets.GPG_PRIVATE_KEY }}
         run: |
-          echo "$GPG_KEY" > /tmp/gpg-private.key
+          (umask 077; echo "$GPG_KEY" > /tmp/gpg-private.key)
           mkdir -p site packages
 
       - name: Build pacman repo database and export GPG public key
-        uses: ./.github/actions/archlinux-docker
+        uses: tehrengruber/arch-pre-built-packages/.github/actions/archlinux-docker@v0.1
         with:
           mount: |
             ${{ github.workspace }}/packages:/packages:ro
             ${{ github.workspace }}/site:/site
             /tmp/gpg-private.key:/tmp/gpg-private.key:ro
           run: |
-            gpg --batch --import /tmp/gpg-private.key
             mkdir -p /site
-            gpg --export --armor > /site/arch-pre-built.gpg
-            find /packages -maxdepth 1 -name "*.pkg.tar.*" \! -name "*.sig" -exec repo-add --sign /site/arch-pre-built.db.tar.gz {} +
+            REPO_DB_NAME='${{ inputs.repo_db_name }}'
+            gpg --batch --import /tmp/gpg-private.key
+            gpg --export --armor > "/site/$REPO_DB_NAME.gpg"
+            find /packages -maxdepth 1 -name "*.pkg.tar.*" \! -name "*.sig" -exec repo-add --sign "/site/$REPO_DB_NAME.db.tar.gz" {} +
 
       - name: Upload to release
         env:
@@ -148,3 +163,7 @@ jobs:
         run: |
           gh release upload "${{ needs.create-temp-release.outputs.tag }}" site/* \
             --repo "${{ github.repository }}"
+
+      - name: Remove GPG key
+        if: always()
+        run: rm -f /tmp/gpg-private.key

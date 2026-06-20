@@ -1,4 +1,4 @@
-name: Build Arch Linux ARM package
+name: Build Arch Linux package
 
 on:
   workflow_call:
@@ -31,7 +31,7 @@ on:
     secrets:
       GPG_PRIVATE_KEY:
         description: "GPG private key for signing packages"
-        required: false
+        required: true
 
 jobs:
   build:
@@ -41,12 +41,7 @@ jobs:
         uses: actions/checkout@v5
 
       - name: Write GPG key
-        run: |
-          if [ -n "$GPG_KEY" ]; then
-            echo "$GPG_KEY" > /tmp/gpg-private.key
-          else
-            touch /tmp/gpg-private.key
-          fi
+        run: umask 077; echo "$GPG_KEY" > /tmp/gpg-private.key
         env:
           GPG_KEY: ${{ secrets.GPG_PRIVATE_KEY }}
 
@@ -79,7 +74,7 @@ jobs:
           done
 
       - name: Build (or reuse) package
-        uses: ./.github/actions/archlinux-docker
+        uses: tehrengruber/arch-pre-built-packages/.github/actions/archlinux-docker@v0.1
         with:
           mount: |
             ${{ github.workspace }}/pkg-out:/pkg-out
@@ -88,9 +83,7 @@ jobs:
           run: |
             git config --file /etc/makepkg.d/gitconfig user.email "till@ehrengruber.ch"
             git config --file /etc/makepkg.d/gitconfig user.name "Till Ehrengruber"
-            if [ -f /tmp/gpg-private.key ]; then
-              gpg --batch --import /tmp/gpg-private.key
-            fi
+            gpg --batch --import /tmp/gpg-private.key
             if [ -n "${{ inputs.pgp_keys }}" ]; then
               gpg --recv-keys ${{ inputs.pgp_keys }}
             fi
@@ -151,3 +144,7 @@ jobs:
           gh release upload "${{ inputs.release_tag }}" \
             pkg-out/*.pkg.tar.* pkg-out/*.aur-hash \
             --repo "${{ github.repository }}"
+
+      - name: Remove GPG key
+        if: always()
+        run: rm -f /tmp/gpg-private.key
