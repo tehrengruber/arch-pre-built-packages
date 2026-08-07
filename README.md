@@ -6,7 +6,6 @@ by GitHub Actions.
 
 ## Currently built
 
-- `gcc13`, `gcc14`
 - `python310`, `python311`, `python312`, `python313`
 - `yay`
 - `claude-code`
