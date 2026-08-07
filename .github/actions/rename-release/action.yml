@@ -31,9 +31,8 @@ runs:
         REPO: ${{ inputs.repo }}
         TITLE: ${{ inputs.title }}
       run: |
-        INFO=$(gh release view "$FROM" --repo "$REPO" --json body,targetCommitish)
+        INFO=$(gh release view "$FROM" --repo "$REPO" --json body)
         BODY=$(echo "$INFO" | jq -r .body)
-        TARGET=$(echo "$INFO" | jq -r .targetCommitish)
         : "${TITLE:=Packages $TO}"
         DIR=$(mktemp -d)
         gh release download "$FROM" --repo "$REPO" --dir "$DIR" || true
@@ -46,13 +45,13 @@ runs:
         # destination, so a failed create permanently lost the only copy.
         gh release delete "$TO" --repo "$REPO" --yes 2>/dev/null || true
         gh api -X DELETE "repos/$REPO/git/refs/tags/$TO" 2>/dev/null || true
-        # `gh release create --target <sha>` 403s for the Actions GITHUB_TOKEN
-        # when <sha> isn't a branch HEAD (cli/cli#9514). $TARGET is the source
-        # release's targetCommitish, an arbitrary historical commit. Create the
-        # tag ref at that commit via the git API (the token can create refs at
-        # any commit), then attach the release to the existing tag without
-        # --target.
-        gh api -X POST "repos/$REPO/git/refs" -f ref="refs/tags/$TO" -f sha="$TARGET"
+        # Create the tag at the default branch HEAD (no --target). The Actions
+        # GITHUB_TOKEN gets 403 "Resource not accessible by integration" when it
+        # tries to put a tag on an arbitrary historical commit — both via
+        # `gh release create --target <sha>` and via the git refs API
+        # (cli/cli#9514). It CAN create a tag at the default branch HEAD, which
+        # is all a renamed release needs: the release keeps its original assets
+        # and notes, only its targetCommitish moves to HEAD.
         gh release create "$TO" \
           --repo "$REPO" \
           --title "$TITLE" \
