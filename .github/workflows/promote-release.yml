@@ -46,7 +46,7 @@ jobs:
 
       - name: Archive previous latest
         if: steps.archive.outputs.tag != ''
-        uses: tehrengruber/arch-pre-built-packages/.github/actions/rename-release@v0.1
+        uses: tehrengruber/arch-pre-built-packages/.github/actions/rename-release@v0.2
         with:
           from_tag: latest
           to_tag: ${{ steps.archive.outputs.tag }}
@@ -55,7 +55,7 @@ jobs:
 
       - name: Promote temp release
         if: steps.find.outputs.tag != ''
-        uses: tehrengruber/arch-pre-built-packages/.github/actions/rename-release@v0.1
+        uses: tehrengruber/arch-pre-built-packages/.github/actions/rename-release@v0.2
         with:
           from_tag: ${{ steps.find.outputs.tag }}
           to_tag: ${{ steps.find.outputs.final_tag }}
