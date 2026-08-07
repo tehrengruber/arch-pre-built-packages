@@ -46,9 +46,15 @@ runs:
         # destination, so a failed create permanently lost the only copy.
         gh release delete "$TO" --repo "$REPO" --yes 2>/dev/null || true
         gh api -X DELETE "repos/$REPO/git/refs/tags/$TO" 2>/dev/null || true
+        # `gh release create --target <sha>` 403s for the Actions GITHUB_TOKEN
+        # when <sha> isn't a branch HEAD (cli/cli#9514). $TARGET is the source
+        # release's targetCommitish, an arbitrary historical commit. Create the
+        # tag ref at that commit via the git API (the token can create refs at
+        # any commit), then attach the release to the existing tag without
+        # --target.
+        gh api -X POST "repos/$REPO/git/refs" -f ref="refs/tags/$TO" -f sha="$TARGET"
         gh release create "$TO" \
           --repo "$REPO" \
-          --target "$TARGET" \
           --title "$TITLE" \
           --notes "$BODY"
         shopt -s nullglob
