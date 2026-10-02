@@ -10,8 +10,6 @@
   package_name: yay
 - package_repo: https://aur.archlinux.org/claude-code.git
   package_name: claude-code
-- package_repo: https://aur.archlinux.org/lsyncd.git
-  package_name: lsyncd
 - package_repo: https://aur.archlinux.org/mutagen.io-bin.git
   package_name: mutagen.io-bin
 - package_repo: https://github.com/tehrengruber/pingvin-share-x-pkg
