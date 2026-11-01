@@ -15,6 +15,11 @@ on:
         description: "Name of the package"
         required: true
         type: string
+      arch:
+        description: "Target architecture (x86_64 or aarch64); must match the runner's architecture"
+        required: false
+        type: string
+        default: x86_64
       release_tag:
         description: "Release tag to upload the package to"
         required: false
@@ -49,6 +54,7 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
           PKG: ${{ inputs.package_name }}
+          ARCH: ${{ inputs.arch }}
           REPO: ${{ github.repository }}
           TEMP_TAG: ${{ inputs.release_tag }}
         run: |
@@ -64,13 +70,14 @@ jobs:
               '[.[] | select(.tagName == $ft or (.tagName | startswith("pending-" + $ft + "-")))] | sort_by(.createdAt) | reverse | .[].tagName')
           for TAG in $TAGS; do
             gh release download "$TAG" --repo "$REPO" --dir prev \
-              --pattern "${PKG}.aur-hash" \
-              --pattern "${PKG}-*.pkg.tar.*" 2>/dev/null || true
-            if [ -f "prev/${PKG}.aur-hash" ] && ls prev/${PKG}-*.pkg.tar.* >/dev/null 2>&1; then
+              --pattern "${PKG}.${ARCH}.aur-hash" \
+              --pattern "${PKG}-*-${ARCH}.pkg.tar.*" \
+              --pattern "${PKG}-*-any.pkg.tar.*" 2>/dev/null || true
+            if [ -f "prev/${PKG}.${ARCH}.aur-hash" ] && ls prev/${PKG}-*.pkg.tar.* >/dev/null 2>&1; then
               echo "Found previous artifacts in $TAG"
               break
             fi
-            rm -f prev/${PKG}.aur-hash prev/${PKG}-*.pkg.tar.* 2>/dev/null || true
+            rm -f prev/${PKG}.${ARCH}.aur-hash prev/${PKG}-*.pkg.tar.* 2>/dev/null || true
           done
 
       - name: Build (or reuse) package
@@ -90,10 +97,11 @@ jobs:
 
             git clone "${{ inputs.package_repo }}" /pkg
             PKG="${{ inputs.package_name }}"
+            HASH_FILE="${PKG}.${{ inputs.arch }}.aur-hash"
             AUR_HEAD=$(git -C /pkg rev-parse HEAD)
             REUSE=0
 
-            if [ -f "/prev/${PKG}.aur-hash" ] && [ "$(cat /prev/${PKG}.aur-hash)" = "$AUR_HEAD" ]; then
+            if [ -f "/prev/$HASH_FILE" ] && [ "$(cat "/prev/$HASH_FILE")" = "$AUR_HEAD" ]; then
               PREV_PKG=$(ls /prev/${PKG}-*.pkg.tar.* 2>/dev/null | grep -v '\.sig$' | head -1)
               if [ -n "$PREV_PKG" ]; then
                 DRIFT=0
@@ -124,14 +132,14 @@ jobs:
               fi
               cd /pkg && makepkg -s --noconfirm --sign $EXTRA_ARGS
             fi
-            echo "$AUR_HEAD" > "/pkg/${PKG}.aur-hash"
+            echo "$AUR_HEAD" > "/pkg/$HASH_FILE"
 
-            cp /pkg/*.pkg.tar.* "/pkg/${PKG}.aur-hash" /pkg-out/
+            cp /pkg/*.pkg.tar.* "/pkg/$HASH_FILE" /pkg-out/
 
       - name: Upload package artifact
         uses: actions/upload-artifact@v5
         with:
-          name: pkg-${{ inputs.package_name }}
+          name: pkg-${{ inputs.package_name }}-${{ inputs.arch }}
           path: |
             pkg-out/*.pkg.tar.*
             pkg-out/*.aur-hash

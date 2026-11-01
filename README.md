@@ -6,10 +6,22 @@ by GitHub Actions.
 
 ## Currently built
 
+x86_64 and aarch64:
+
 - `python310`, `python311`, `python312`, `python313`
 - `yay`
 - `claude-code`
+- `mutagen.io-bin`
+- `victoriametrics`, `vmutils`
+
+x86_64 only:
+
+- `lsyncd`
 - `pingvin-share-x`
+
+The architectures are configured per package via the `arch` field in
+[`.github/packages.yml`](.github/packages.yml). aarch64 packages are built on
+native GitHub ARM runners inside an Arch Linux ARM container.
 
 ## Using the repository
 
@@ -26,6 +38,13 @@ Add to `/etc/pacman.conf`:
 
 ```ini
 [arch-pre-built]
+Server = https://github.com/tehrengruber/arch-pre-built-packages/releases/download/latest
+```
+
+On aarch64 (Arch Linux ARM) use the `arch-pre-built-aarch64` database instead:
+
+```ini
+[arch-pre-built-aarch64]
 Server = https://github.com/tehrengruber/arch-pre-built-packages/releases/download/latest
 ```
 

@@ -3,16 +3,30 @@ name: Build and release packages (reusable)
 on:
   workflow_call:
     inputs:
-      runner:
-        description: "Runner label for the image build and package builds (the release/orchestration jobs always run on ubuntu-latest)"
+      default_arch:
+        description: >-
+          Architecture to build packages for when an entry has no `arch` field
+          (x86_64 or aarch64). Its pacman repo is published as <repo_db_name>;
+          every other architecture as <repo_db_name>-<arch>.
+        required: false
+        type: string
+        default: x86_64
+      runner_x86_64:
+        description: "Runner label for x86_64 image and package builds"
         required: false
         type: string
         default: ubuntu-latest
+      runner_aarch64:
+        description: "Runner label for aarch64 image and package builds"
+        required: false
+        type: string
+        default: ubuntu-24.04-arm
       packages_file:
         description: >-
           Path (relative to the repo root) of a YAML file listing the packages
           to build. Each entry has package_repo and package_name, plus optional
-          skip_tests and pgp_keys.
+          arch (string or list, defaults to default_arch), skip_tests and
+          pgp_keys.
         required: false
         type: string
         default: .github/packages.yml
@@ -32,7 +46,11 @@ permissions:
 
 jobs:
   build-image:
-    runs-on: ${{ inputs.runner }}
+    needs: prepare-packages
+    strategy:
+      matrix:
+        include: ${{ fromJSON(needs.prepare-packages.outputs.archs) }}
+    runs-on: ${{ matrix.runner }}
     steps:
       - name: Checkout
         uses: actions/checkout@v5
@@ -89,6 +107,9 @@ jobs:
     runs-on: ubuntu-latest
     outputs:
       packages: ${{ steps.parse.outputs.packages }}
+      archs: ${{ steps.parse.outputs.archs }}
+      arch_list: ${{ steps.parse.outputs.arch_list }}
+      default_runner: ${{ steps.parse.outputs.default_runner }}
     steps:
       - name: Checkout
         uses: actions/checkout@v5
@@ -96,13 +117,28 @@ jobs:
         id: parse
         env:
           PACKAGES_FILE: ${{ inputs.packages_file }}
+          DEFAULT_ARCH: ${{ inputs.default_arch }}
+          RUNNERS: '{"x86_64": "${{ inputs.runner_x86_64 }}", "aarch64": "${{ inputs.runner_aarch64 }}"}'
         run: |
           PACKAGES=$(yq -o=json -I=0 '.' "$PACKAGES_FILE")
           if [ -z "$PACKAGES" ] || [ "$PACKAGES" = "null" ]; then
             echo "No packages found in $PACKAGES_FILE" >&2
             exit 1
           fi
+          if ! echo "$RUNNERS" | jq -e --arg a "$DEFAULT_ARCH" 'has($a)' >/dev/null; then
+            echo "Unsupported default_arch '$DEFAULT_ARCH'" >&2
+            exit 1
+          fi
+          # One matrix entry per (package, arch); `arch` may be a string or a list.
+          PACKAGES=$(echo "$PACKAGES" | jq -c --arg def "$DEFAULT_ARCH" --argjson runners "$RUNNERS" '
+            [.[] | . as $p
+              | ($p.arch // $def | if type == "array" then .[] else . end) as $a
+              | if $runners | has($a) then $p + {arch: $a, runner: $runners[$a]}
+                else error("\($p.package_name): unsupported arch \($a)") end]')
           echo "packages=$PACKAGES" >> "$GITHUB_OUTPUT"
+          echo "archs=$(echo "$PACKAGES" | jq -c '[.[] | {arch, runner}] | unique')" >> "$GITHUB_OUTPUT"
+          echo "arch_list=$(echo "$PACKAGES" | jq -r '[.[].arch] | unique | join(" ")')" >> "$GITHUB_OUTPUT"
+          echo "default_runner=$(echo "$RUNNERS" | jq -r --arg a "$DEFAULT_ARCH" '.[$a]')" >> "$GITHUB_OUTPUT"
 
   build-packages:
     needs: [build-image, create-temp-release, prepare-packages]
@@ -113,9 +149,10 @@ jobs:
     # Full path + ref (not ./): a relative ref in a reusable workflow resolves
     # against the repo that started the run, so cross-repo callers would not
     # find it. Keep this pinned to the same tag as the action refs.
-    uses: tehrengruber/arch-pre-built-packages/.github/workflows/build-package.yml@v0.1
+    uses: tehrengruber/arch-pre-built-packages/.github/workflows/build-package.yml@v0.3
     with:
-      runner: ${{ inputs.runner }}
+      runner: ${{ matrix.runner }}
+      arch: ${{ matrix.arch }}
       package_repo: ${{ matrix.package_repo }}
       package_name: ${{ matrix.package_name }}
       release_tag: ${{ needs.create-temp-release.outputs.tag }}
@@ -125,9 +162,9 @@ jobs:
       GPG_PRIVATE_KEY: ${{ secrets.GPG_PRIVATE_KEY }}
 
   deploy-site:
-    needs: [create-temp-release, build-image, build-packages]
+    needs: [create-temp-release, prepare-packages, build-image, build-packages]
     if: needs.create-temp-release.outputs.tag != ''
-    runs-on: ${{ inputs.runner }}
+    runs-on: ${{ needs.prepare-packages.outputs.default_runner }}
     steps:
       - name: Checkout
         uses: actions/checkout@v5
@@ -156,9 +193,16 @@ jobs:
           run: |
             mkdir -p /site
             REPO_DB_NAME='${{ inputs.repo_db_name }}'
+            DEFAULT_ARCH='${{ inputs.default_arch }}'
             gpg --batch --import /tmp/gpg-private.key
             gpg --export --armor > "/site/$REPO_DB_NAME.gpg"
-            find /packages -maxdepth 1 -name "*.pkg.tar.*" \! -name "*.sig" -exec repo-add --sign "/site/$REPO_DB_NAME.db.tar.gz" {} +
+            # One database per architecture; arch=any packages go into all of them.
+            for ARCH in ${{ needs.prepare-packages.outputs.arch_list }}; do
+              DB="$REPO_DB_NAME"
+              [ "$ARCH" = "$DEFAULT_ARCH" ] || DB="$REPO_DB_NAME-$ARCH"
+              find /packages -maxdepth 1 \( -name "*-$ARCH.pkg.tar.*" -o -name "*-any.pkg.tar.*" \) \! -name "*.sig" \
+                -exec repo-add --sign "/site/$DB.db.tar.gz" {} +
+            done
 
       - name: Upload to release
         env:

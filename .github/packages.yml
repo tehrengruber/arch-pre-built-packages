@@ -1,23 +1,39 @@
+# Each entry: package_repo, package_name, and optionally
+#   arch:       architecture(s) to build for, string or list of x86_64/aarch64
+#               (default: x86_64). Only list architectures the PKGBUILD's
+#               arch=() supports; build arch=any packages for a single arch,
+#               they are added to every arch's repo database.
+#   skip_tests: true to run makepkg --nocheck
+#   pgp_keys:   space-separated key IDs to import before building
 - package_repo: https://aur.archlinux.org/python310.git
   package_name: python310
+  arch: [x86_64, aarch64]
 - package_repo: https://aur.archlinux.org/python311.git
   package_name: python311
+  arch: [x86_64, aarch64]
 - package_repo: https://aur.archlinux.org/python312.git
   package_name: python312
+  arch: [x86_64, aarch64]
 - package_repo: https://aur.archlinux.org/python313.git
   package_name: python313
+  arch: [x86_64, aarch64]
 - package_repo: https://aur.archlinux.org/yay.git
   package_name: yay
+  arch: [x86_64, aarch64]
 - package_repo: https://aur.archlinux.org/claude-code.git
   package_name: claude-code
+  arch: [x86_64, aarch64]
 - package_repo: https://aur.archlinux.org/lsyncd.git
   package_name: lsyncd
 - package_repo: https://aur.archlinux.org/mutagen.io-bin.git
   package_name: mutagen.io-bin
+  arch: [x86_64, aarch64]
 - package_repo: https://github.com/tehrengruber/pingvin-share-x-pkg
   package_name: pingvin-share-x
 - package_repo: https://github.com/tehrengruber/victoriametrics-pkg
   package_name: victoriametrics
+  arch: [x86_64, aarch64]
 - package_repo: https://github.com/tehrengruber/vmutils-pkg
   package_name: vmutils
+  arch: [x86_64, aarch64]
 
