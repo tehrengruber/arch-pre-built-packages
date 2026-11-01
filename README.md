@@ -16,8 +16,12 @@ x86_64 and aarch64:
 
 x86_64 only:
 
-- `lsyncd`
+- `codebase-memory-mcp`
 - `pingvin-share-x`
+
+Architecture-independent (in both databases):
+
+- `python-synapse-auto-dm`
 
 The architectures are configured per package via the `arch` field in
 [`.github/packages.yml`](.github/packages.yml). aarch64 packages are built on

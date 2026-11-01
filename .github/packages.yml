@@ -23,11 +23,11 @@
 - package_repo: https://aur.archlinux.org/claude-code.git
   package_name: claude-code
   arch: [x86_64, aarch64]
-- package_repo: https://aur.archlinux.org/lsyncd.git
-  package_name: lsyncd
 - package_repo: https://aur.archlinux.org/mutagen.io-bin.git
   package_name: mutagen.io-bin
   arch: [x86_64, aarch64]
+- package_repo: https://aur.archlinux.org/codebase-memory-mcp.git
+  package_name: codebase-memory-mcp
 - package_repo: https://github.com/tehrengruber/pingvin-share-x-pkg
   package_name: pingvin-share-x
 - package_repo: https://github.com/tehrengruber/victoriametrics-pkg
@@ -36,4 +36,6 @@
 - package_repo: https://github.com/tehrengruber/vmutils-pkg
   package_name: vmutils
   arch: [x86_64, aarch64]
+- package_repo: https://github.com/tehrengruber/synapse-auto-dm
+  package_name: python-synapse-auto-dm
 
