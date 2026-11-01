@@ -7,35 +7,27 @@
 #   pgp_keys:   space-separated key IDs to import before building
 - package_repo: https://aur.archlinux.org/python310.git
   package_name: python310
-  arch: [x86_64, aarch64]
 - package_repo: https://aur.archlinux.org/python311.git
   package_name: python311
-  arch: [x86_64, aarch64]
 - package_repo: https://aur.archlinux.org/python312.git
   package_name: python312
-  arch: [x86_64, aarch64]
 - package_repo: https://aur.archlinux.org/python313.git
   package_name: python313
-  arch: [x86_64, aarch64]
 - package_repo: https://aur.archlinux.org/yay.git
   package_name: yay
-  arch: [x86_64, aarch64]
 - package_repo: https://aur.archlinux.org/claude-code.git
   package_name: claude-code
   arch: [x86_64, aarch64]
 - package_repo: https://aur.archlinux.org/mutagen.io-bin.git
   package_name: mutagen.io-bin
-  arch: [x86_64, aarch64]
 - package_repo: https://aur.archlinux.org/codebase-memory-mcp.git
   package_name: codebase-memory-mcp
 - package_repo: https://github.com/tehrengruber/pingvin-share-x-pkg
   package_name: pingvin-share-x
 - package_repo: https://github.com/tehrengruber/victoriametrics-pkg
   package_name: victoriametrics
-  arch: [x86_64, aarch64]
 - package_repo: https://github.com/tehrengruber/vmutils-pkg
   package_name: vmutils
-  arch: [x86_64, aarch64]
 - package_repo: https://github.com/tehrengruber/synapse-auto-dm
   package_name: python-synapse-auto-dm
 

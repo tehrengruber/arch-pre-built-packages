@@ -8,16 +8,16 @@ by GitHub Actions.
 
 x86_64 and aarch64:
 
-- `python310`, `python311`, `python312`, `python313`
-- `yay`
 - `claude-code`
-- `mutagen.io-bin`
-- `victoriametrics`, `vmutils`
 
 x86_64 only:
 
+- `python310`, `python311`, `python312`, `python313`
+- `yay`
+- `mutagen.io-bin`
 - `codebase-memory-mcp`
 - `pingvin-share-x`
+- `victoriametrics`, `vmutils`
 
 Architecture-independent (in both databases):
 
