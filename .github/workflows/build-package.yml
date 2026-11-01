@@ -88,6 +88,10 @@ jobs:
             ${{ github.workspace }}/prev:/prev:ro
             /tmp/gpg-private.key:/tmp/gpg-private.key:ro
           run: |
+            # The cached image's sync DB can be up to a day old; mirrors drop
+            # superseded packages, so installing deps from it 404s. Refresh
+            # first (full -Syu: partial upgrades are unsupported).
+            pacman -Syu --noconfirm
             git config --file /etc/makepkg.d/gitconfig user.email "till@ehrengruber.ch"
             git config --file /etc/makepkg.d/gitconfig user.name "Till Ehrengruber"
             gpg --batch --import /tmp/gpg-private.key
