@@ -16,6 +16,7 @@ x86_64 only:
 - `yay`
 - `mutagen.io-bin`
 - `codebase-memory-mcp`
+- `omnidiff`
 - `pingvin-share-x`
 - `victoriametrics`, `vmutils`
 
