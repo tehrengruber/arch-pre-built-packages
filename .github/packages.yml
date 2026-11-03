@@ -22,8 +22,6 @@
   package_name: mutagen.io-bin
 - package_repo: https://aur.archlinux.org/codebase-memory-mcp.git
   package_name: codebase-memory-mcp
-- package_repo: https://aur.archlinux.org/omnidiff.git
-  package_name: omnidiff
 - package_repo: https://github.com/tehrengruber/pingvin-share-x-pkg
   package_name: pingvin-share-x
 - package_repo: https://github.com/tehrengruber/victoriametrics-pkg
