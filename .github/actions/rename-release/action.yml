@@ -31,11 +31,17 @@ runs:
         REPO: ${{ inputs.repo }}
         TITLE: ${{ inputs.title }}
       run: |
-        INFO=$(gh release view "$FROM" --repo "$REPO" --json body)
+        INFO=$(gh release view "$FROM" --repo "$REPO" --json body,assets)
         BODY=$(echo "$INFO" | jq -r .body)
         : "${TITLE:=Packages $TO}"
         DIR=$(mktemp -d)
-        gh release download "$FROM" --repo "$REPO" --dir "$DIR" || true
+        # No `|| true`: a failed download (source deleted meanwhile, transient
+        # API error) must abort before the destination is touched, otherwise a
+        # release with missing assets would be published. `gh release download`
+        # errors on a release without assets, so only call it when there are some.
+        if [ "$(echo "$INFO" | jq '.assets | length')" -gt 0 ]; then
+          gh release download "$FROM" --repo "$REPO" --dir "$DIR"
+        fi
 
         # Create and fully populate the destination FIRST; only delete the
         # source once it is safely in place. With `set -e`, a failure here

@@ -152,10 +152,12 @@ jobs:
         if: inputs.release_tag != ''
         env:
           GH_TOKEN: ${{ github.token }}
+        # --clobber: a re-run of the build uploads into the same pending
+        # release, which may already hold this package from a previous attempt.
         run: |
           gh release upload "${{ inputs.release_tag }}" \
             pkg-out/*.pkg.tar.* pkg-out/*.aur-hash \
-            --repo "${{ github.repository }}"
+            --repo "${{ github.repository }}" --clobber
 
       - name: Remove GPG key
         if: always()

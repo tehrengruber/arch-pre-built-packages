@@ -95,12 +95,22 @@ jobs:
             exit 0
           fi
           TEMP_TAG="pending-$FINAL_TAG-$RUN_ID"
-          gh release create "$TEMP_TAG" \
-            --repo "$REPO" \
-            --target "$TARGET" \
-            --title "Packages $FINAL_TAG (pending)" \
-            --notes "Pending build from $TARGET" \
-            --draft
+          # A re-run keeps the run id, so a previous attempt may already have
+          # created this pending release. Reuse it instead of creating a second
+          # draft with the same tag name (drafts do not reserve their tag), so
+          # uploads and promote-release unambiguously address one release.
+          EXISTING=$(gh release list --repo "$REPO" --limit 100 --json tagName \
+            --jq ".[] | select(.tagName == \"$TEMP_TAG\") | .tagName")
+          if [ -n "$EXISTING" ]; then
+            echo "Reusing pending release $TEMP_TAG from a previous attempt"
+          else
+            gh release create "$TEMP_TAG" \
+              --repo "$REPO" \
+              --target "$TARGET" \
+              --title "Packages $FINAL_TAG (pending)" \
+              --notes "Pending build from $TARGET" \
+              --draft
+          fi
           echo "tag=$TEMP_TAG" >> "$GITHUB_OUTPUT"
 
   prepare-packages:
@@ -149,7 +159,7 @@ jobs:
     # Full path + ref (not ./): a relative ref in a reusable workflow resolves
     # against the repo that started the run, so cross-repo callers would not
     # find it. Keep this pinned to the same tag as the action refs.
-    uses: tehrengruber/arch-pre-built-packages/.github/workflows/build-package.yml@v0.3
+    uses: tehrengruber/arch-pre-built-packages/.github/workflows/build-package.yml@v0.4
     with:
       runner: ${{ matrix.runner }}
       arch: ${{ matrix.arch }}
@@ -208,8 +218,9 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
+          # --clobber: a re-run of this run uploads into the same pending release.
           gh release upload "${{ needs.create-temp-release.outputs.tag }}" site/* \
-            --repo "${{ github.repository }}"
+            --repo "${{ github.repository }}" --clobber
 
       - name: Remove GPG key
         if: always()
