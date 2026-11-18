@@ -101,9 +101,15 @@ jobs:
             pacman -Syu --noconfirm
             git config --file /etc/makepkg.d/gitconfig user.email "till@ehrengruber.ch"
             git config --file /etc/makepkg.d/gitconfig user.name "Till Ehrengruber"
-            gpg --batch --import /tmp/gpg-private.key
+            # Build as an unprivileged user, as Arch does: some test suites
+            # (e.g. nginx's) fail as root. sudo lets makepkg -s install deps.
+            useradd -m builder
+            echo 'builder ALL=(ALL) NOPASSWD: ALL' > /etc/sudoers.d/builder
+            as_builder() { sudo -u builder -H "$@"; }
+            # Via stdin: the key file is only readable by root.
+            as_builder gpg --batch --import < /tmp/gpg-private.key
             if [ -n "${{ inputs.pgp_keys }}" ]; then
-              gpg --recv-keys ${{ inputs.pgp_keys }}
+              as_builder gpg --recv-keys ${{ inputs.pgp_keys }}
             fi
 
             PKG_DIR="${{ inputs.package_dir }}"
@@ -115,6 +121,7 @@ jobs:
               git clone "${{ inputs.package_repo }}" /pkg
               SRC_HASH=$(git -C /pkg rev-parse HEAD)
             fi
+            chown -R builder: /pkg
             PKG="${{ inputs.package_name }}"
             HASH_FILE="${PKG}.${{ inputs.arch }}.aur-hash"
             REUSE=0
@@ -149,7 +156,7 @@ jobs:
               if [ "${{ inputs.skip_tests }}" = "true" ]; then
                 EXTRA_ARGS="--nocheck"
               fi
-              cd /pkg && makepkg -s --noconfirm --sign $EXTRA_ARGS
+              cd /pkg && as_builder makepkg -s --noconfirm --sign $EXTRA_ARGS
             fi
             (echo "$SRC_HASH"; cd /pkg && ls *.pkg.tar.* | grep -v '\.sig$') > "/pkg/$HASH_FILE"
 
