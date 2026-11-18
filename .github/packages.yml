@@ -6,6 +6,9 @@
 #               they are added to every arch's repo database.
 #   skip_tests: true to run makepkg --nocheck
 #   pgp_keys:   space-separated key IDs to import before building
+#   override_official: true to build even if the official repos ship the
+#               package at the same or a newer version (by default the build
+#               then fails, so obsolete entries get noticed and removed)
 - package_repo: https://aur.archlinux.org/python310.git
   package_name: python310
 - package_repo: https://aur.archlinux.org/python311.git
@@ -33,7 +36,7 @@
   package_name: python-synapse-auto-dm
 
 # Temporary: Arch's PKGBUILDs bumped to 1.30.7 / 1.31.9 for CVE-2026-123633 and
-# CVE-2026-123007. Remove once [extra] ships these versions.
+# CVE-2026-123007. The build fails once [extra] ships these versions; then remove.
 - package_dir: pkgbuilds/nginx
   package_name: nginx
 - package_dir: pkgbuilds/nginx-mainline

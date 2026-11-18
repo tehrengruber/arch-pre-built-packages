@@ -26,8 +26,8 @@ on:
           Path (relative to the repo root) of a YAML file listing the packages
           to build. Each entry has package_name and either package_repo (git
           URL) or package_dir (directory in the calling repo), plus optional
-          arch (string or list, defaults to default_arch), skip_tests and
-          pgp_keys.
+          arch (string or list, defaults to default_arch), skip_tests,
+          pgp_keys and override_official.
         required: false
         type: string
         default: .github/packages.yml
@@ -170,6 +170,7 @@ jobs:
       release_tag: ${{ needs.create-temp-release.outputs.tag }}
       pgp_keys: ${{ matrix.pgp_keys }}
       skip_tests: ${{ matrix.skip_tests }}
+      override_official: ${{ matrix.override_official }}
     secrets:
       GPG_PRIVATE_KEY: ${{ secrets.GPG_PRIVATE_KEY }}
 

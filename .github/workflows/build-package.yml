@@ -37,6 +37,13 @@ on:
         required: false
         type: string
         default: ""
+      override_official:
+        description: >-
+          'true' to allow building a package the official repos ship at the
+          same or a newer version (otherwise the build fails as obsolete)
+        required: false
+        type: string
+        default: ""
     secrets:
       GPG_PRIVATE_KEY:
         description: "GPG private key for signing packages"
@@ -125,6 +132,25 @@ jobs:
             PKG="${{ inputs.package_name }}"
             HASH_FILE="${PKG}.${{ inputs.arch }}.aur-hash"
             REUSE=0
+
+            # Fail once the official repos (the only ones configured in this
+            # container) ship any of our packages at the same or a newer version,
+            # e.g. a temporary security bump that upstream has caught up with.
+            if [ "${{ inputs.override_official }}" != "true" ]; then
+              SRCINFO=$(cd /pkg && as_builder makepkg --printsrcinfo)
+              field() { echo "$SRCINFO" | awk -F' = ' -v k="$1" '{ sub(/^\t/, "") } $1 == k { print $2; exit }'; }
+              EPOCH=$(field epoch)
+              OURS="${EPOCH:+$EPOCH:}$(field pkgver)-$(field pkgrel)"
+              for NAME in $(echo "$SRCINFO" | awk -F' = ' '$1 == "pkgname" { print $2 }'); do
+                OFFICIAL_REPO="" OFFICIAL=""
+                read -r OFFICIAL_REPO OFFICIAL < <(pacman -Si "$NAME" 2>/dev/null \
+                  | awk -F' *: +' '/^Repository/ {r = $2} /^Version/ {print r, $2; exit}') || true
+                if [ -n "$OFFICIAL" ] && [ "$(vercmp "$OFFICIAL" "$OURS")" -ge 0 ]; then
+                  echo "::error::$NAME $OURS is obsolete, [$OFFICIAL_REPO] ships $OFFICIAL. Remove $PKG from the package list (or set override_official: true)."
+                  exit 1
+                fi
+              done
+            fi
 
             if [ -f "/prev/$HASH_FILE" ] && [ "$(head -1 "/prev/$HASH_FILE")" = "$SRC_HASH" ]; then
               mapfile -t PREV_PKGS < <(tail -n +2 "/prev/$HASH_FILE" | sed 's|^|/prev/|')
