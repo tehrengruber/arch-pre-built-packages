@@ -18,7 +18,7 @@ pkgname=(
 )
 pkgver=1.31.9
 pkgrel=1
-_tests_commit=ff61b0ffdb77c4279be2aab1529a5ad06bfcc119
+_tests_commit=cf2b5bf5f98f578a0a3da13c8c507c996f5f74fe
 arch=(x86_64)
 pkgdesc='Lightweight HTTP server and IMAP/POP3 proxy server, mainline release'
 url='https://nginx.org'
@@ -64,7 +64,7 @@ validpgpkeys=(
   '13C82A63B603576156E30A4EA0EA981B66B0D967'  # Konstantin Pavlov <thresh@nginx.com>
 )
 sha512sums=('0e7221ba925dfd7fce74fb5b98b72e006c9d63dcba42c8b5576e413143bc3383632aad0c7cc0fb486f1cf9c87c61d7f4b88047843e692dd4dfd9484918dd8f6e'
-            'a244c6f5ac3b2441945b7f9f1e497d3f8937d2fa9cada2c66b719d4f0463773f87c04adf0945e40cf7b97d828a066916c4122458efaa9748024027e3f3a61ad0'
+            'b9fe7db2f4145673bb6148e0d6c902358ecd4b0e6d66c64ffecf18bb67d5dfb693f42a79d82458e200845edda2bd811ef245d832c6a830c3fd5c55ca9a677f14'
             'f469b3b14def666e955abf6f2d3c68a47631cad7bee90c92039ffe5bf629aa7e32bb4250844d52c0f963740fb07bf7fea5f8887cc1d5199403f07be6214fcb8d'
             '2f4dfcfa711b8bcbc5918ba635f5e430ef7132e66276261ade62bb1cba016967432c8dce7f84352cb8b07dc7c6b18f09177aa3eb92c8e358b2a106c8ca142fe9'
             '2d4ba6e53ee078bbf0921d0221ea7c7acf5a391ce8b3dc9d135cc4c68c1508569a00dedcfaca382f0f912d97e3ced71691573e0aef3b62b124099b33554fbdde')
