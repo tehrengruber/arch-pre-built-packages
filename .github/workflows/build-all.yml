@@ -24,7 +24,8 @@ on:
       packages_file:
         description: >-
           Path (relative to the repo root) of a YAML file listing the packages
-          to build. Each entry has package_repo and package_name, plus optional
+          to build. Each entry has package_name and either package_repo (git
+          URL) or package_dir (directory in the calling repo), plus optional
           arch (string or list, defaults to default_arch), skip_tests and
           pgp_keys.
         required: false
@@ -159,11 +160,12 @@ jobs:
     # Full path + ref (not ./): a relative ref in a reusable workflow resolves
     # against the repo that started the run, so cross-repo callers would not
     # find it. Keep this pinned to the same tag as the action refs.
-    uses: tehrengruber/arch-pre-built-packages/.github/workflows/build-package.yml@v0.4
+    uses: tehrengruber/arch-pre-built-packages/.github/workflows/build-package.yml@v0.5
     with:
       runner: ${{ matrix.runner }}
       arch: ${{ matrix.arch }}
       package_repo: ${{ matrix.package_repo }}
+      package_dir: ${{ matrix.package_dir }}
       package_name: ${{ matrix.package_name }}
       release_tag: ${{ needs.create-temp-release.outputs.tag }}
       pgp_keys: ${{ matrix.pgp_keys }}

@@ -8,8 +8,12 @@ on:
         required: true
         type: string
       package_repo:
-        description: "Git URL of the package repo containing the PKGBUILD"
-        required: true
+        description: "Git URL of the package repo containing the PKGBUILD (or set package_dir)"
+        required: false
+        type: string
+      package_dir:
+        description: "Directory in the calling repo containing the PKGBUILD, used instead of package_repo"
+        required: false
         type: string
       package_name:
         description: "Name of the package"
@@ -68,16 +72,18 @@ jobs:
           TAGS=$(gh release list --repo "$REPO" --json tagName,createdAt \
             | jq -r --arg ft "$FINAL_TAG" \
               '[.[] | select(.tagName == $ft or (.tagName | startswith("pending-" + $ft + "-")))] | sort_by(.createdAt) | reverse | .[].tagName')
+          HASH_FILE="${PKG}.${ARCH}.aur-hash"
           for TAG in $TAGS; do
-            gh release download "$TAG" --repo "$REPO" --dir prev \
-              --pattern "${PKG}.${ARCH}.aur-hash" \
-              --pattern "${PKG}-*-${ARCH}.pkg.tar.*" \
-              --pattern "${PKG}-*-any.pkg.tar.*" 2>/dev/null || true
-            if [ -f "prev/${PKG}.${ARCH}.aur-hash" ] && ls prev/${PKG}-*.pkg.tar.* >/dev/null 2>&1; then
+            rm -f prev/*
+            gh release download "$TAG" --repo "$REPO" --dir prev --pattern "$HASH_FILE" 2>/dev/null || continue
+            # Line 1 is the source hash, the remaining lines the package files built from it.
+            PATTERNS=()
+            while read -r f; do PATTERNS+=(--pattern "$f" --pattern "$f.sig"); done < <(tail -n +2 "prev/$HASH_FILE")
+            [ ${#PATTERNS[@]} -gt 0 ] || continue
+            if gh release download "$TAG" --repo "$REPO" --dir prev "${PATTERNS[@]}"; then
               echo "Found previous artifacts in $TAG"
               break
             fi
-            rm -f prev/${PKG}.${ARCH}.aur-hash prev/${PKG}-*.pkg.tar.* 2>/dev/null || true
           done
 
       - name: Build (or reuse) package
@@ -86,6 +92,7 @@ jobs:
           mount: |
             ${{ github.workspace }}/pkg-out:/pkg-out
             ${{ github.workspace }}/prev:/prev:ro
+            ${{ github.workspace }}:/src:ro
             /tmp/gpg-private.key:/tmp/gpg-private.key:ro
           run: |
             # The cached image's sync DB can be up to a day old; mirrors drop
@@ -99,15 +106,23 @@ jobs:
               gpg --recv-keys ${{ inputs.pgp_keys }}
             fi
 
-            git clone "${{ inputs.package_repo }}" /pkg
+            PKG_DIR="${{ inputs.package_dir }}"
+            if [ -n "$PKG_DIR" ]; then
+              # Tree hash of the directory: only changes to the package itself trigger a rebuild.
+              cp -r "/src/$PKG_DIR" /pkg
+              SRC_HASH=$(git -C /src rev-parse "HEAD:$PKG_DIR")
+            else
+              git clone "${{ inputs.package_repo }}" /pkg
+              SRC_HASH=$(git -C /pkg rev-parse HEAD)
+            fi
             PKG="${{ inputs.package_name }}"
             HASH_FILE="${PKG}.${{ inputs.arch }}.aur-hash"
-            AUR_HEAD=$(git -C /pkg rev-parse HEAD)
             REUSE=0
 
-            if [ -f "/prev/$HASH_FILE" ] && [ "$(cat "/prev/$HASH_FILE")" = "$AUR_HEAD" ]; then
-              PREV_PKG=$(ls /prev/${PKG}-*.pkg.tar.* 2>/dev/null | grep -v '\.sig$' | head -1)
-              if [ -n "$PREV_PKG" ]; then
+            if [ -f "/prev/$HASH_FILE" ] && [ "$(head -1 "/prev/$HASH_FILE")" = "$SRC_HASH" ]; then
+              mapfile -t PREV_PKGS < <(tail -n +2 "/prev/$HASH_FILE" | sed 's|^|/prev/|')
+              PREV_PKG="${PREV_PKGS[0]:-}"
+              if [ -n "$PREV_PKG" ] && ls "${PREV_PKGS[@]}" >/dev/null 2>&1; then
                 DRIFT=0
                 while IFS= read -r line; do
                   case "$line" in
@@ -122,8 +137,8 @@ jobs:
                   esac
                 done < <(bsdtar -xOf "$PREV_PKG" .BUILDINFO)
                 if [ "$DRIFT" = "0" ]; then
-                  cp /prev/${PKG}-*.pkg.tar.* /pkg/
-                  echo "Reused previous build (AUR HEAD + BUILDINFO match)"
+                  for f in "${PREV_PKGS[@]}"; do cp "$f" "$f.sig" /pkg/; done
+                  echo "Reused previous build (source hash + BUILDINFO match)"
                   REUSE=1
                 fi
               fi
@@ -136,7 +151,7 @@ jobs:
               fi
               cd /pkg && makepkg -s --noconfirm --sign $EXTRA_ARGS
             fi
-            echo "$AUR_HEAD" > "/pkg/$HASH_FILE"
+            (echo "$SRC_HASH"; cd /pkg && ls *.pkg.tar.* | grep -v '\.sig$') > "/pkg/$HASH_FILE"
 
             cp /pkg/*.pkg.tar.* "/pkg/$HASH_FILE" /pkg-out/
 

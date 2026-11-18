@@ -16,9 +16,11 @@ x86_64 only:
 - `yay`
 - `mutagen.io-bin`
 - `codebase-memory-mcp`
-- `omnidiff`
 - `pingvin-share-x`
 - `victoriametrics`, `vmutils`
+- `nginx`, `nginx-mainline` (temporary, 1.30.7 / 1.31.9 with the
+  CVE-2026-123633 and CVE-2026-123007 fixes until `[extra]` catches up;
+  includes the `-mod-*` and `-src` split packages)
 
 Architecture-independent (in both databases):
 

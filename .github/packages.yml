@@ -1,4 +1,5 @@
-# Each entry: package_repo, package_name, and optionally
+# Each entry: package_name, either package_repo (git URL of the PKGBUILD repo)
+# or package_dir (directory in this repo containing the PKGBUILD), and optionally
 #   arch:       architecture(s) to build for, string or list of x86_64/aarch64
 #               (default: x86_64). Only list architectures the PKGBUILD's
 #               arch=() supports; build arch=any packages for a single arch,
@@ -31,3 +32,9 @@
 - package_repo: https://github.com/tehrengruber/synapse-auto-dm
   package_name: python-synapse-auto-dm
 
+# Temporary: Arch's PKGBUILDs bumped to 1.30.7 / 1.31.9 for CVE-2026-123633 and
+# CVE-2026-123007. Remove once [extra] ships these versions.
+- package_dir: pkgbuilds/nginx
+  package_name: nginx
+- package_dir: pkgbuilds/nginx-mainline
+  package_name: nginx-mainline
