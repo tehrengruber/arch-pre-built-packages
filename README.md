@@ -18,6 +18,7 @@ x86_64 only:
 - `codebase-memory-mcp`
 - `pingvin-share-x`
 - `victoriametrics`, `vmutils`
+- `dex-idp`
 
 Architecture-independent (in both databases):
 

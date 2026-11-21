@@ -32,5 +32,7 @@
   package_name: victoriametrics
 - package_repo: https://github.com/tehrengruber/vmutils-pkg
   package_name: vmutils
+- package_repo: https://github.com/tehrengruber/dex-idp-pkg
+  package_name: dex-idp
 - package_repo: https://github.com/tehrengruber/synapse-auto-dm
   package_name: python-synapse-auto-dm
