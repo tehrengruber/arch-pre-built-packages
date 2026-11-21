@@ -1,0 +1,175 @@
+name: Build PKGBUILD repo (reusable)
+
+# Builds the PKGBUILD at the root of the calling repository for real, in an
+# Arch Linux container. This is what catches an upstream that renames or
+# restructures its release tarball: a checksum bump alone sails straight past
+# that, and it would otherwise surface on the host at deploy time.
+#
+# Meant to run on pull requests, so the result is a check on the change itself.
+# That check is what pkg-repo-update.yml's auto-merge waits for. Require the
+# "<caller job id> / build" check (e.g. "build / build") on the default branch.
+#
+# See templates/pkg-repo/ for a caller.
+on:
+  workflow_call:
+    inputs:
+      archs:
+        description: >-
+          Whitespace-separated architectures to build for: x86_64, aarch64
+          and/or any. Default: the arch=() array of the PKGBUILD. Each one is
+          built natively on its runner (any on the x86_64 runner); there is
+          no cross-compilation.
+        required: false
+        type: string
+        default: ""
+      runner_x86_64:
+        description: "Runner label for x86_64 (and any) builds"
+        required: false
+        type: string
+        default: ubuntu-latest
+      runner_aarch64:
+        description: "Runner label for aarch64 builds"
+        required: false
+        type: string
+        default: ubuntu-24.04-arm
+      check_package:
+        description: >-
+          Name of the built package whose contents expected_files is checked
+          against. Empty skips the check.
+        required: false
+        type: string
+        default: ""
+      expected_files:
+        description: >-
+          Whitespace-separated paths (without leading /) that check_package
+          must contain, e.g. "usr/bin/foo usr/lib/systemd/system/foo.service".
+        required: false
+        type: string
+        default: ""
+      pgp_keys:
+        description: >-
+          Space-separated PGP key IDs to receive before building, for sources
+          verified via validpgpkeys. Keys in keys/pgp/*.asc are imported too.
+        required: false
+        type: string
+        default: ""
+      skip_tests:
+        description: "'true' to skip the check() phase of makepkg"
+        required: false
+        type: string
+        default: ""
+
+permissions:
+  contents: read
+
+jobs:
+  archs:
+    runs-on: ubuntu-latest
+    outputs:
+      matrix: ${{ steps.matrix.outputs.matrix }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+
+      - name: Map architectures to runners
+        id: matrix
+        env:
+          ARCHS: ${{ inputs.archs }}
+          RUNNERS: '{"x86_64": "${{ inputs.runner_x86_64 }}", "aarch64": "${{ inputs.runner_aarch64 }}", "any": "${{ inputs.runner_x86_64 }}"}'
+        run: |
+          if [ -n "$ARCHS" ]; then
+            SOURCE="the archs input"
+          else
+            SOURCE="arch=() in PKGBUILD"
+            # In a subshell, so nothing the PKGBUILD defines leaks out.
+            ALL=$(bash -c 'source ./PKGBUILD >/dev/null && printf "%s\n" "${arch[@]}"')
+            # PKGBUILDs often also list e.g. armv7h; build what we can and
+            # skip the rest, rather than failing over architectures we have
+            # no runner for. An explicit archs input is still strict.
+            ARCHS=""
+            for a in $ALL; do
+              if echo "$RUNNERS" | jq -e --arg a "$a" 'has($a)' >/dev/null; then
+                ARCHS="$ARCHS $a"
+              else
+                echo "::warning::skipping architecture $a from PKGBUILD: no runner for it"
+              fi
+            done
+          fi
+          [ -n "$ARCHS" ] || { echo "::error::no supported architecture (x86_64, aarch64, any) in $SOURCE"; exit 1; }
+          MATRIX=$(printf '%s\n' $ARCHS | jq -Rnc --argjson runners "$RUNNERS" --arg src "$SOURCE" '
+            [inputs | select(length > 0)] | unique
+            | map(. as $a | if $runners | has($a) then {arch: $a, runner: $runners[$a]}
+                  else error("unsupported architecture \($a) in \($src) (supported: x86_64, aarch64, any)") end)')
+          echo "Building for: $(echo "$MATRIX" | jq -r 'map(.arch) | join(", ")') (from $SOURCE)"
+          echo "matrix=$MATRIX" >> "$GITHUB_OUTPUT"
+
+  makepkg:
+    needs: archs
+    strategy:
+      fail-fast: false
+      matrix:
+        include: ${{ fromJSON(needs.archs.outputs.matrix) }}
+    name: makepkg (${{ matrix.arch }})
+    runs-on: ${{ matrix.runner }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+
+      - name: Build the package
+        uses: tehrengruber/arch-pre-built-packages/.github/actions/archlinux-docker@v0.6
+        with:
+          mount: |
+            ${{ github.workspace }}:/src:ro
+          run: |
+            # The cached image's sync DB can be up to a day old; mirrors drop
+            # superseded packages, so installing deps from it 404s.
+            pacman -Syu --noconfirm
+            # Build as an unprivileged user, as Arch does: makepkg refuses root
+            # and some test suites fail as root. sudo lets makepkg -s install
+            # the dependencies.
+            useradd -m builder
+            echo 'builder ALL=(ALL) NOPASSWD: ALL' > /etc/sudoers.d/builder
+            as_builder() { sudo -u builder -H "$@"; }
+
+            # Build in a copy: the checkout is mounted read-only, so nothing
+            # the build writes can end up owned by the container's uid in the
+            # runner's workspace.
+            cp -r /src /pkg
+            rm -rf /pkg/.git
+            chown -R builder: /pkg
+
+            shopt -s nullglob
+            for key in /pkg/keys/pgp/*.asc; do as_builder gpg --batch --import "$key"; done
+            if [ -n "${{ inputs.pgp_keys }}" ]; then
+              as_builder gpg --batch --recv-keys ${{ inputs.pgp_keys }}
+            fi
+
+            EXTRA_ARGS=""
+            [ "${{ inputs.skip_tests }}" = "true" ] && EXTRA_ARGS="--nocheck"
+            cd /pkg && as_builder makepkg -s --noconfirm $EXTRA_ARGS
+
+            CHECK_PKG="${{ inputs.check_package }}"
+            [ -n "$CHECK_PKG" ] || exit 0
+            # Match the package itself, not e.g. its -debug split package.
+            pkgs=()
+            for f in /pkg/*.pkg.tar.*; do
+              [ "$(bsdtar -xOf "$f" .PKGINFO | awk -F' = ' '$1 == "pkgname" { print $2 }')" = "$CHECK_PKG" ] && pkgs+=("$f")
+            done
+            [ ${#pkgs[@]} -eq 1 ] || { echo "::error::expected exactly one $CHECK_PKG package, got: ${pkgs[*]:-none}"; exit 1; }
+            contents=$(bsdtar -tf "${pkgs[0]}" | sed 's#^\./##')
+            for f in ${{ inputs.expected_files }}; do
+              printf '%s\n' "$contents" | grep -qxF "$f" || { echo "::error::missing from $CHECK_PKG: $f"; exit 1; }
+            done
+            echo "built and verified $CHECK_PKG: ${{ inputs.expected_files }}"
+
+  # One check with a fixed name, whatever the architectures: branch protection
+  # cannot require the matrix entries ("makepkg (x86_64)", ...) robustly.
+  build:
+    needs: [archs, makepkg]
+    if: always()
+    runs-on: ubuntu-latest
+    steps:
+      - name: All builds succeeded
+        run: |
+          [ "${{ needs.archs.result }}" = "success" ] && [ "${{ needs.makepkg.result }}" = "success" ] || {
+            echo "::error::archs: ${{ needs.archs.result }}, makepkg: ${{ needs.makepkg.result }}"; exit 1; }

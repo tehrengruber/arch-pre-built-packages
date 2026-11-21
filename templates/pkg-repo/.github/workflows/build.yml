@@ -1,0 +1,20 @@
+name: Build
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  # Keep the job id "build": branch protection requires the "build / build" check.
+  build:
+    uses: tehrengruber/arch-pre-built-packages/.github/workflows/pkg-repo-build.yml@v0.6
+    # Builds every architecture in the PKGBUILD's arch=() natively; set
+    # archs: "x86_64 aarch64" (or any) to override.
+    with:
+      check_package: foo
+      expected_files: usr/bin/foo usr/lib/systemd/system/foo.service

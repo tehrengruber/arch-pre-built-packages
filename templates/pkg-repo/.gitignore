@@ -1,0 +1,6 @@
+# makepkg builds in place. None of this belongs in the repository, and
+# upstream tarballs can be larger than GitHub accepts at all.
+/src/
+/pkg/
+*.pkg.tar.*
+*.tar.gz

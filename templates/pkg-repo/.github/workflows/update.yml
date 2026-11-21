@@ -1,0 +1,23 @@
+name: Update PKGBUILD
+
+on:
+  schedule:
+    - cron: '17 6 * * *'
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'Version to pin (default: latest upstream release)'
+        required: false
+
+permissions:
+  contents: write
+  pull-requests: write
+
+jobs:
+  update:
+    uses: tehrengruber/arch-pre-built-packages/.github/workflows/pkg-repo-update.yml@v0.6
+    with:
+      version: ${{ inputs.version }}
+      release_url: https://github.com/OWNER/REPO/releases/tag/v{version}
+    secrets:
+      UPDATE_PAT: ${{ secrets.UPDATE_PAT }}

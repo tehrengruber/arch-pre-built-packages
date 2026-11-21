@@ -1,0 +1,139 @@
+name: Update PKGBUILD repo (reusable)
+
+# Runs the calling repository's update script and opens a pull request when it
+# bumps pkgver. The build check on that PR (pkg-repo-build.yml) decides whether
+# it lands: auto-merge takes it as soon as the package builds. The PR is not a
+# review gate: it is the record of what changed, and the thing to revert when a
+# release turns out to ship a breaking change.
+#
+# The caller needs:
+#   - an update script (default ./update.sh) that rewrites PKGBUILD for the
+#     given version, or the latest one when called without arguments;
+#   - an UPDATE_PAT secret: a PR opened with GITHUB_TOKEN does not trigger
+#     workflow runs, so the build check would never start;
+#   - auto-merge enabled, and branch protection on the default branch requiring
+#     the build check. Without them the merge step fails with "Protected branch
+#     rules not configured for this branch".
+#
+# See templates/pkg-repo/ for a caller.
+on:
+  workflow_call:
+    inputs:
+      version:
+        description: "Version to pin (default: whatever the update script picks, i.e. the latest)"
+        required: false
+        type: string
+        default: ""
+      update_command:
+        description: "Command that updates PKGBUILD; the version is appended when given"
+        required: false
+        type: string
+        default: ./update.sh
+      release_url:
+        description: "Link to the upstream release for the PR body; {version} is replaced"
+        required: false
+        type: string
+        default: ""
+      pr_note:
+        description: "Extra text for the PR body, e.g. what to look out for in the changelog"
+        required: false
+        type: string
+        default: ""
+    secrets:
+      UPDATE_PAT:
+        description: "Token that opens and merges the PR (contents + pull requests write)"
+        required: true
+
+permissions:
+  contents: write
+  pull-requests: write
+
+jobs:
+  update:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+
+      - name: Bump to the upstream release
+        id: bump
+        env:
+          GH_TOKEN: ${{ github.token }}
+          UPDATE_COMMAND: ${{ inputs.update_command }}
+          VERSION: ${{ inputs.version }}
+        run: |
+          before=$(sed -n 's/^pkgver=//p' PKGBUILD)
+          $UPDATE_COMMAND ${VERSION:+"$VERSION"}
+          after=$(sed -n 's/^pkgver=//p' PKGBUILD)
+          echo "before=$before" >> "$GITHUB_OUTPUT"
+          echo "after=$after" >> "$GITHUB_OUTPUT"
+          if [ "$before" = "$after" ]; then
+            echo "changed=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "changed=true" >> "$GITHUB_OUTPUT"
+          fi
+
+      # Only matches the branch this workflow would use, which is all that is
+      # needed to stop it proposing the same version every day while an earlier
+      # attempt is still open. Open pull requests only: one closed by hand is a
+      # decision, but so is closing one that was merely broken, and reopening
+      # it the next day is the friendlier of the two failure modes.
+      - name: Look for a pull request already proposing this version
+        id: existing
+        if: steps.bump.outputs.changed == 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          number=$(gh pr list --state open \
+                     --head "update/${{ steps.bump.outputs.after }}" \
+                     --json number --jq '.[0].number // ""')
+          echo "number=$number" >> "$GITHUB_OUTPUT"
+          if [ -n "$number" ]; then
+            echo "#$number already proposes ${{ steps.bump.outputs.after }}; nothing to do"
+          fi
+
+      - name: Compose the pull request body
+        id: body
+        if: steps.bump.outputs.changed == 'true' && steps.existing.outputs.number == ''
+        env:
+          BEFORE: ${{ steps.bump.outputs.before }}
+          AFTER: ${{ steps.bump.outputs.after }}
+          RELEASE_URL: ${{ inputs.release_url }}
+          PR_NOTE: ${{ inputs.pr_note }}
+        run: |
+          {
+            echo 'body<<PKG_REPO_UPDATE_EOF'
+            echo "Upstream released $AFTER (was $BEFORE)."
+            echo
+            echo "The build check on this pull request is what verifies the package"
+            echo "actually builds. Merged automatically once it passes; revert this PR"
+            echo "if the release turns out to break something."
+            if [ -n "$PR_NOTE" ]; then echo; echo "$PR_NOTE"; fi
+            if [ -n "$RELEASE_URL" ]; then echo; echo "${RELEASE_URL//\{version\}/$AFTER}"; fi
+            echo 'PKG_REPO_UPDATE_EOF'
+          } >> "$GITHUB_OUTPUT"
+
+      - name: Open a pull request
+        id: pr
+        if: steps.bump.outputs.changed == 'true' && steps.existing.outputs.number == ''
+        uses: peter-evans/create-pull-request@v8
+        with:
+          # A PAT, not GITHUB_TOKEN: a pull request opened with the workflow's
+          # own token does not trigger workflow runs, so the build check would
+          # never start and auto-merge would wait for it forever.
+          token: ${{ secrets.UPDATE_PAT }}
+          branch: update/${{ steps.bump.outputs.after }}
+          title: "Update to ${{ steps.bump.outputs.after }}"
+          commit-message: "Update to ${{ steps.bump.outputs.after }}"
+          body: ${{ steps.body.outputs.body }}
+
+      # Queued behind the build check rather than merged outright, so nothing
+      # lands that has not been built. A required *review* would not work: a
+      # token cannot approve the pull request it opened itself.
+      - name: Merge it once it builds
+        if: steps.pr.outputs.pull-request-number != ''
+        env:
+          GH_TOKEN: ${{ secrets.UPDATE_PAT }}
+        run: |
+          gh pr merge --squash --auto --delete-branch \
+             "${{ steps.pr.outputs.pull-request-number }}"

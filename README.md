@@ -67,3 +67,29 @@ sudo pacman -S python312
 - `latest` — always points at the most recent successful build.
 - `build-YYYY-MM-DD` — the previous `latest` release is archived under this
   tag (using its original creation date) before a new `latest` is published.
+
+## PKGBUILD repos that update themselves
+
+For a package maintained in its own repository (PKGBUILD at the root), two
+reusable workflows keep it current without manual work:
+
+- [`pkg-repo-update.yml`](.github/workflows/pkg-repo-update.yml) runs the
+  repo's `update.sh` daily and opens a pull request when it bumps `pkgver`,
+  with auto-merge queued behind the build check.
+- [`pkg-repo-build.yml`](.github/workflows/pkg-repo-build.yml) builds the
+  package on pull requests and pushes, natively for every architecture in the
+  PKGBUILD's `arch=()` (x86_64, aarch64 or any; override with the `archs`
+  input), optionally checking that it contains the expected files.
+
+To set up a new package repo:
+
+1. Copy [`templates/pkg-repo/`](templates/pkg-repo) into it, then adapt
+   `update.sh` and the `with:` inputs of both workflows.
+2. Add an `UPDATE_PAT` secret: a fine-grained token for that repo with
+   *Contents* and *Pull requests* read/write. A pull request opened with
+   `GITHUB_TOKEN` would not trigger the build check.
+3. Enable *Allow auto-merge* and protect `main`, requiring the
+   `build / build` status check.
+4. Add the repo to [`.github/packages.yml`](.github/packages.yml) so it is
+   published here.
+
