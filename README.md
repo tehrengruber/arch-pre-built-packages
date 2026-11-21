@@ -18,9 +18,6 @@ x86_64 only:
 - `codebase-memory-mcp`
 - `pingvin-share-x`
 - `victoriametrics`, `vmutils`
-- `nginx`, `nginx-mainline` (temporary, 1.30.7 / 1.31.9 with the
-  CVE-2026-123633 and CVE-2026-123007 fixes until `[extra]` catches up;
-  includes the `-mod-*` and `-src` split packages)
 
 Architecture-independent (in both databases):
 

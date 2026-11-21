@@ -34,10 +34,3 @@
   package_name: vmutils
 - package_repo: https://github.com/tehrengruber/synapse-auto-dm
   package_name: python-synapse-auto-dm
-
-# Temporary: Arch's PKGBUILDs bumped to 1.30.7 / 1.31.9 for CVE-2026-123633 and
-# CVE-2026-123007. The build fails once [extra] ships these versions; then remove.
-- package_dir: pkgbuilds/nginx
-  package_name: nginx
-- package_dir: pkgbuilds/nginx-mainline
-  package_name: nginx-mainline
